@@ -8,6 +8,7 @@ public final class PersistenceController: @unchecked Sendable {
     public static let modelName = "HostMailStore"
 
     public let container: NSPersistentCloudKitContainer
+    public let cloudKitEnabled: Bool
 
     public init(inMemory: Bool = false) {
         guard let modelURL = Bundle.module.url(forResource: Self.modelName, withExtension: "momd"),
@@ -28,10 +29,16 @@ public final class PersistenceController: @unchecked Sendable {
         description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
 
-        if !inMemory {
+        let hasICloudAccount = FileManager.default.ubiquityIdentityToken != nil
+        let useCloudKit = !inMemory && hasICloudAccount
+        self.cloudKitEnabled = useCloudKit
+
+        if useCloudKit {
             description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
                 containerIdentifier: Self.cloudKitContainerIdentifier
             )
+        } else {
+            description.cloudKitContainerOptions = nil
         }
 
         container.loadPersistentStores { _, error in
