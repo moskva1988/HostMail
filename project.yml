@@ -34,6 +34,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.host.mail.ios
         PRODUCT_NAME: HostMail
         TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_ENTITLEMENTS: HostMail-iOS/HostMail-iOS.entitlements
         INFOPLIST_KEY_CFBundleDisplayName: HostMail
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -52,6 +53,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.host.mail.macos
         PRODUCT_NAME: HostMail
+        CODE_SIGN_ENTITLEMENTS: HostMail-macOS/HostMail-macOS.entitlements
         INFOPLIST_KEY_CFBundleDisplayName: HostMail
         INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026 Host*"
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity

@@ -14,7 +14,10 @@ let package = Package(
     targets: [
         .target(
             name: "HostMailCore",
-            path: "Sources/HostMailCore"
+            path: "Sources/HostMailCore",
+            resources: [
+                .process("Storage/HostMailStore.xcdatamodeld")
+            ]
         )
     ]
 )

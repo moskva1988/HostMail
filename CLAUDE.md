@@ -24,32 +24,88 @@ Native iOS email client with built-in AI assistant. BYOK model (user provides ow
 
 ---
 
-## Active Branch: build-deploy
+## Active Branch: settings
 
-# Branch: build-deploy
+# Branch: settings
 
-Сборка и развёртывание: iOS сборка, подпись, TestFlight, App Store.
+Параметры: API ключи пользователя, предпочтения, конфигурация.
 
-## Workflow
-- Claude пишет код на Linux (`/root/HostMail`) и пушит в git
-- Пользователь делает `pull` на Mac и собирает/тестирует в Xcode
-- Claude НЕ может собирать iOS-проекты на Linux (нужен Xcode/macOS)
-- После любого изменения: коммит + `git push origin main`
+## API-ключи
+- 4 BYOK провайдера: Claude, OpenAI, Yandex Alice, GigaChat
+- MVP: только ввод API key, OAuth/подписка отложены
+- Хранение через Keychain (HostMailCore/Auth/)
 
-## Сборка
-- XcodeGen: `xcodegen generate` → HostMail.xcodeproj
-- Таргеты: iOS 17+, macOS 14+
-- SPM: HostMailCore как shared framework
-- project.yml — конфигурация XcodeGen
+## Синхронизация настроек
+- CloudKit/iCloud синхронизация между Mac ↔ iOS
+- API-ключи через Keychain-CloudKit
+- Настройки, категории, AI-предпочтения — всё синхронизируется
 
-## Host* семейство
-- HostMail — часть семейства Host* приложений (HostCheck, HostShell, HostMail)
-- Legend integrity — соблюдать единый стиль/бренд
+## MVP шаги
+- Шаг 6: UI настройки IMAP/SMTP + Keychain
+- Шаг 11: BYOK экран — ввод API-ключей для 4 провайдеров
+- Шаг 12: Переключатель AI-провайдера в настройках
 
-## Репо
-- GitHub public repo
-- Remote: https://github.com/moskva1988/HostMail.git (public)
+---
 
-## Текущее состояние
-- Шаг 1 выполнен: 21 файл, скелет проекта
-- git init + первый коммит готовы к push
+## Cross-Branch Changes (from other branches)
+Review these for context — other branches made these changes:
+
+# Cross-Branch Change Tracker
+
+
+## 2026-04-21 14:47 [build-deploy]
+- Created commit be8668c modifying 21 files with 437 lines of code
+- Затрагивает: build-deploy
+
+---
+
+## Active Branch: ai-assistant
+
+# Branch: ai-assistant
+
+AI-помощник: автоответы, категоризация входящих, интеллектуальные команды.
+
+## AI-провайдеры
+MVP поддерживает 5 реализаций протокола `AIProvider`:
+1. **ApplePrivateProvider** — Apple Foundation Models (default, без ключа)
+2. **ClaudeProvider** — Anthropic Claude (BYOK)
+3. **OpenAIProvider** — OpenAI (BYOK)
+4. **YandexProvider** — Yandex Alice (BYOK)
+5. **GigaChatProvider** — GigaChat Sber (BYOK)
+
+**MVP — только API key (BYOK)**. Режим подписок/OAuth отложен (v0.2+).
+Claude Code CLI bridge — тоже v0.2 (нишевая фича, Mac-only).
+
+Протокол `AIProvider` спроектирован так, чтобы добавить новый провайдер одним файлом без рефакторинга.
+
+У пользователя НЕТ API-ключа Claude — тестирование через Apple Foundation Models, Ollama, бесплатные кредиты Anthropic Console.
+
+## Функции
+- **Draft Reply** (Шаг 10 MVP) — кнопка "AI reply" → провайдер → вставка в compose
+- Категоризация входящих писем
+- Текстовые команды через AI
+- Всё на устройстве + ключ пользователя (без бэкенда)
+
+## Файлы
+- HostMailCore/Sources/HostMailCore/AI/AIProvider.swift — протокол
+- HostMailCore/Sources/HostMailCore/AI/ApplePrivateProvider.swift
+- HostMailCore/Sources/HostMailCore/AI/ClaudeProvider.swift
+- HostMailCore/Sources/HostMailCore/AI/OpenAIProvider.swift
+- HostMailCore/Sources/HostMailCore/AI/YandexProvider.swift
+- HostMailCore/Sources/HostMailCore/AI/GigaChatProvider.swift
+
+## v0.2 (после MVP)
+- Whisper API голосовые команды
+- Claude Code CLI bridge
+
+---
+
+## Cross-Branch Changes (from other branches)
+Review these for context — other branches made these changes:
+
+# Cross-Branch Change Tracker
+
+
+## 2026-04-21 14:47 [build-deploy]
+- Created commit be8668c modifying 21 files with 437 lines of code
+- Затрагивает: build-deploy
