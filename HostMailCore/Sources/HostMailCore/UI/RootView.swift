@@ -9,6 +9,8 @@ public struct RootView: View {
     @State private var aiTestRunning = false
     @State private var showIMAPTestSheet = false
     @State private var imapTestResult: String = ""
+    @State private var showSwiftMailSheet = false
+    @State private var swiftMailResult: String = ""
 
     public init() {}
 
@@ -56,7 +58,7 @@ public struct RootView: View {
             Button {
                 showIMAPTestSheet = true
             } label: {
-                Text("Test IMAP Fetch").frame(minWidth: 220)
+                Text("Test IMAP Fetch (MailCore2)").frame(minWidth: 220)
             }
             .buttonStyle(.bordered)
 
@@ -66,12 +68,30 @@ public struct RootView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
             }
+
+            Button {
+                showSwiftMailSheet = true
+            } label: {
+                Text("Test SwiftMail Fetch (spike)").frame(minWidth: 220)
+            }
+            .buttonStyle(.bordered)
+            .tint(.orange)
+
+            if !swiftMailResult.isEmpty {
+                Text(swiftMailResult)
+                    .font(.caption)
+                    .multilineTextAlignment(.leading)
+                    .padding(.horizontal, 24)
+            }
         }
         .padding()
-        .frame(minWidth: 360, minHeight: 600)
+        .frame(minWidth: 360, minHeight: 680)
         .task { await bootstrap() }
         .sheet(isPresented: $showIMAPTestSheet) {
             IMAPTestSheet(result: $imapTestResult)
+        }
+        .sheet(isPresented: $showSwiftMailSheet) {
+            SwiftMailTestSheet(result: $swiftMailResult)
         }
     }
 
@@ -201,6 +221,101 @@ private struct IMAPTestSheet: View {
             } catch {
                 output = "Error: \(error.localizedDescription)"
                 result = output
+            }
+        }
+    }
+}
+
+private struct SwiftMailTestSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var result: String
+
+    @State private var email: String = ""
+    @State private var password: String = ""
+    @State private var host: String = "imap.gmail.com"
+    @State private var port: String = "993"
+    @State private var running = false
+    @State private var output: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Test SwiftMail Fetch")
+                .font(.title2.bold())
+            Text("Spike: validate Cocoanetics/SwiftMail end-to-end. Credentials are session-only.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Group {
+                TextField("Email / Username", text: $email)
+                    .textContentType(.username)
+                    .disableAutocorrection(true)
+                #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.emailAddress)
+                #endif
+                SecureField("Password / App Password", text: $password)
+                TextField("IMAP Host", text: $host)
+                    .disableAutocorrection(true)
+                TextField("Port", text: $port)
+                    .frame(maxWidth: 100)
+            }
+            .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(.bordered)
+                Spacer()
+                Button(action: run) {
+                    HStack(spacing: 6) {
+                        if running { ProgressView().controlSize(.small) }
+                        Text("Connect & Fetch 10")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .disabled(running || email.isEmpty || password.isEmpty || host.isEmpty)
+            }
+
+            if !output.isEmpty {
+                ScrollView {
+                    Text(output)
+                        .font(.caption.monospaced())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 280)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 460)
+    }
+
+    private func run() {
+        running = true
+        output = ""
+        let creds = SwiftMailClient.Credentials(
+            host: host,
+            port: Int(port) ?? 993,
+            username: email,
+            password: password
+        )
+        Task {
+            defer { running = false }
+            do {
+                let client = SwiftMailClient(credentials: creds)
+                let snapshots = try await client.fetchRecent(folder: "INBOX", limit: 10)
+                let header = "INBOX — fetched \(snapshots.count) messages\n\n"
+                let lines = snapshots.map { s -> String in
+                    let date = s.date.map { ISO8601DateFormatter().string(from: $0) } ?? "—"
+                    let from = s.from ?? "(no from)"
+                    let subj = s.subject ?? "(no subject)"
+                    return "uid=\(s.uid) \(date)\n  \(from)\n  \(subj)"
+                }
+                output = header + lines.joined(separator: "\n\n")
+                result = "SwiftMail OK — \(snapshots.count) messages"
+            } catch {
+                output = "Error: \(error.localizedDescription)"
+                result = "SwiftMail failed: \(error.localizedDescription)"
             }
         }
     }

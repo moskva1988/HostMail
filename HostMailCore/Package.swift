@@ -11,17 +11,17 @@ let package = Package(
     products: [
         .library(name: "HostMailCore", targets: ["HostMailCore"])
     ],
+    dependencies: [
+        // SPIKE: SwiftMail (pure Swift IMAP/SMTP, BSD-2). Validating it as a
+        // replacement for the broken MailCore2 path on Apple Silicon macOS.
+        .package(url: "https://github.com/Cocoanetics/SwiftMail", from: "1.5.2")
+    ],
     targets: [
-        // MailCore2 as a local XCFramework. Build it once via:
-        //   ./scripts/setup-mailcore.sh
-        // (script uses Carthage + --use-xcframeworks).
-        .binaryTarget(
-            name: "MailCore",
-            path: "Frameworks/MailCore.xcframework"
-        ),
         .target(
             name: "HostMailCore",
-            dependencies: ["MailCore"],
+            dependencies: [
+                .product(name: "SwiftMail", package: "SwiftMail")
+            ],
             path: "Sources/HostMailCore",
             resources: [
                 .process("Storage/HostMailStore.xcdatamodeld")
