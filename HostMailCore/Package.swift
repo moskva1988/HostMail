@@ -14,7 +14,11 @@ let package = Package(
     dependencies: [
         // SPIKE: SwiftMail (pure Swift IMAP/SMTP, BSD-2). Validating it as a
         // replacement for the broken MailCore2 path on Apple Silicon macOS.
-        .package(url: "https://github.com/Cocoanetics/SwiftMail", from: "1.5.2")
+        // Range starts at 1.0.0 because 1.5.2 transitively requires
+        // swift-dotenv 2.1.0 which needs swift-tools-version 6.0 (Xcode 16+).
+        // SPM will pick the highest version compatible with our Swift 5.10
+        // toolchain (Xcode 15.4). Tighten this once we're on Xcode 16.
+        .package(url: "https://github.com/Cocoanetics/SwiftMail", from: "1.0.0")
     ],
     targets: [
         .target(
