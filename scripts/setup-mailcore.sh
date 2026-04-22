@@ -30,9 +30,27 @@ mkdir -p "$FRAMEWORKS_DIR"
 cd "$WORK_DIR"
 echo 'github "MailCore/mailcore2"' > Cartfile
 
-echo "==> Running: carthage update --use-xcframeworks --platform iOS,macOS"
-echo "    (this can take 10+ minutes the first time — building libetpan, ICU, etc.)"
-carthage update --use-xcframeworks --platform iOS,macOS --no-use-binaries
+echo "==> Step 1/3: carthage update --no-build  (checkout sources only)"
+carthage update --no-build
+
+MAILCORE_PBXPROJ="$WORK_DIR/Carthage/Checkouts/mailcore2/build-mac/mailcore2.xcodeproj/project.pbxproj"
+if [ ! -f "$MAILCORE_PBXPROJ" ]; then
+    echo "ERROR: expected pbxproj not found at $MAILCORE_PBXPROJ"
+    exit 1
+fi
+
+echo "==> Step 2/3: patch deployment targets in mailcore2.xcodeproj"
+echo "    (Xcode 15+ removed libarclite; old iOS 6/macOS 10.7 targets must be raised)"
+# BSD sed (macOS) syntax: -i '' for in-place
+sed -i '' -E 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' "$MAILCORE_PBXPROJ"
+sed -i '' -E 's/MACOSX_DEPLOYMENT_TARGET = [0-9.]+/MACOSX_DEPLOYMENT_TARGET = 11.0/g' "$MAILCORE_PBXPROJ"
+
+echo "    Patched targets:"
+grep -E "(IPHONEOS|MACOSX)_DEPLOYMENT_TARGET" "$MAILCORE_PBXPROJ" | sort -u
+
+echo "==> Step 3/3: carthage build --use-xcframeworks --platform iOS,macOS"
+echo "    (this can take 10+ minutes — compiling libetpan, ICU, etc.)"
+carthage build --use-xcframeworks --platform iOS,macOS --no-use-binaries
 
 BUILT_XCFRAMEWORK="$WORK_DIR/Carthage/Build/MailCore.xcframework"
 if [ ! -d "$BUILT_XCFRAMEWORK" ]; then
