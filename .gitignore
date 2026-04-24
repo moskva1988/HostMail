@@ -31,14 +31,6 @@ Package.resolved
 Pods/
 *.xcworkspace
 
-# Carthage
-Carthage/Build/
-Carthage/Checkouts/
-
-# MailCore2 XCFramework (built locally via scripts/setup-mailcore.sh)
-HostMailCore/Frameworks/*.xcframework/
-.mailcore-build/
-
 # Fastlane
 fastlane/report.xml
 fastlane/Preview.html

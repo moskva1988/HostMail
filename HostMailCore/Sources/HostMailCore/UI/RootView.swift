@@ -2,132 +2,213 @@ import CoreData
 import SwiftUI
 
 public struct RootView: View {
-    @Environment(\.managedObjectContext) private var context
-    @State private var storeStatus: String = "Loading store…"
-    @State private var aiStatus: String = "Checking Apple Intelligence…"
-    @State private var aiTestResult: String = ""
-    @State private var aiTestRunning = false
-    @State private var showIMAPTestSheet = false
-    @State private var imapTestResult: String = ""
-
     public init() {}
 
     public var body: some View {
+        NavigationStack {
+            InboxView()
+        }
+    }
+}
+
+// MARK: - Inbox
+
+private struct InboxView: View {
+    @Environment(\.managedObjectContext) private var context
+
+    @FetchRequest(
+        sortDescriptors: [
+            NSSortDescriptor(keyPath: \Message.date, ascending: false),
+            NSSortDescriptor(keyPath: \Message.fetchedAt, ascending: false)
+        ]
+    ) private var messages: FetchedResults<Message>
+
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Account.createdAt, ascending: true)]
+    ) private var accounts: FetchedResults<Account>
+
+    @State private var showSyncSheet = false
+    @State private var showAITest = false
+    @State private var lastSyncSummary: String = ""
+    @State private var syncing = false
+
+    var body: some View {
+        Group {
+            if accounts.isEmpty {
+                emptyState
+            } else {
+                inboxList
+            }
+        }
+        .navigationTitle("HostMail")
+        .toolbar { toolbar }
+        .sheet(isPresented: $showSyncSheet) {
+            SyncSheet(
+                existingAccount: accounts.first,
+                onResult: { lastSyncSummary = $0 }
+            )
+        }
+        .sheet(isPresented: $showAITest) {
+            AppleIntelligenceTestSheet()
+        }
+    }
+
+    private var emptyState: some View {
         VStack(spacing: 16) {
-            Image(systemName: "envelope.fill")
+            Image(systemName: "tray")
                 .font(.system(size: 64))
-                .foregroundStyle(.tint)
-            Text("HostMail")
-                .font(.largeTitle.weight(.bold))
-            Text("v\(HostMailCore.version) — skeleton")
+                .foregroundStyle(.tertiary)
+            Text("No account yet")
+                .font(.title3.weight(.semibold))
+            Text("Add an IMAP account to start syncing your inbox.")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
-
-            Divider().padding(.horizontal, 40)
-
-            Label(storeStatus, systemImage: "externaldrive.badge.icloud")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            Label(aiStatus, systemImage: "brain.head.profile")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            Button(action: runAITest) {
-                HStack(spacing: 8) {
-                    if aiTestRunning {
-                        ProgressView().controlSize(.small)
-                    }
-                    Text("Test Apple Intelligence")
-                }
-                .frame(minWidth: 220)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Button {
+                showSyncSheet = true
+            } label: {
+                Text("Add Account").frame(minWidth: 180)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(aiTestRunning)
             .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
-            if !aiTestResult.isEmpty {
-                Text(aiTestResult)
-                    .font(.caption)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 4)
+    private var inboxList: some View {
+        List {
+            if !lastSyncSummary.isEmpty {
+                Section {
+                    Text(lastSyncSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            Section(header: header) {
+                if messages.isEmpty {
+                    Text("Inbox is empty — tap Sync to fetch messages.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                } else {
+                    ForEach(messages, id: \.objectID) { msg in
+                        MessageRow(message: msg)
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #endif
+    }
 
+    private var header: some View {
+        HStack {
+            if let account = accounts.first {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(account.displayName ?? account.emailAddress ?? "Account")
+                        .font(.subheadline.weight(.semibold))
+                    if let date = account.lastSyncAt {
+                        Text("Last synced \(date.formatted(.relative(presentation: .named)))")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Never synced")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Spacer()
+            Text("\(messages.count) cached")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
             Button {
-                showIMAPTestSheet = true
+                showSyncSheet = true
             } label: {
-                Text("Test IMAP Fetch").frame(minWidth: 220)
+                if syncing {
+                    ProgressView()
+                } else {
+                    Image(systemName: accounts.isEmpty ? "plus.circle" : "arrow.clockwise")
+                }
             }
-            .buttonStyle(.bordered)
-
-            if !imapTestResult.isEmpty {
-                Text(imapTestResult)
-                    .font(.caption)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-            }
+            .disabled(syncing)
         }
-        .padding()
-        .frame(minWidth: 360, minHeight: 600)
-        .task { await bootstrap() }
-        .sheet(isPresented: $showIMAPTestSheet) {
-            IMAPTestSheet(result: $imapTestResult)
-        }
-    }
-
-    private func bootstrap() async {
-        let request: NSFetchRequest<Account> = Account.fetchRequest()
-        let count: Int = await context.perform {
-            (try? context.count(for: request)) ?? 0
-        }
-        let mode = PersistenceController.shared.cloudKitEnabled ? "Core Data + CloudKit" : "Core Data (local-only — sign in to iCloud to sync)"
-        storeStatus = "\(mode) — \(count) account(s)"
-
-        let provider = ApplePrivateProvider()
-        aiStatus = provider.isConfigured
-            ? "Apple Intelligence: Ready"
-            : "Apple Intelligence: Not available on this device"
-    }
-
-    private func runAITest() {
-        aiTestRunning = true
-        aiTestResult = ""
-        Task {
-            defer { aiTestRunning = false }
-            let provider = ApplePrivateProvider()
-            do {
-                let result = try await provider.summarize(
-                    "HostMail is a native iOS and macOS email client with built-in AI assistance. It uses Apple Intelligence by default and supports BYOK for Claude, OpenAI, Yandex Alice, and GigaChat."
-                )
-                aiTestResult = result
-            } catch {
-                aiTestResult = "Error: \(error.localizedDescription)"
+        ToolbarItem(placement: .secondaryAction) {
+            Button {
+                showAITest = true
+            } label: {
+                Label("Test Apple Intelligence", systemImage: "brain.head.profile")
             }
         }
     }
 }
 
-private struct IMAPTestSheet: View {
+// MARK: - Message row
+
+private struct MessageRow: View {
+    let message: Message
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(message.from ?? "(unknown sender)")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                if let date = message.date {
+                    Text(date.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(message.subject ?? "(no subject)")
+                .font(.subheadline)
+                .lineLimit(2)
+            if let preview = message.preview, !preview.isEmpty {
+                Text(preview)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Sync sheet
+
+private struct SyncSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var result: String
+
+    let existingAccount: Account?
+    let onResult: (String) -> Void
 
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var host: String = "imap.gmail.com"
     @State private var port: String = "993"
-    @State private var useSSL: Bool = true
+    @State private var displayName: String = ""
     @State private var running = false
     @State private var output: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Test IMAP Fetch")
+            Text(existingAccount != nil ? "Sync Inbox" : "Add Account")
                 .font(.title2.bold())
-            Text("Credentials are used for this session only — not stored.")
+            Text("Password is held in memory only for this sync. Persistent Keychain storage arrives in the Add-Account screen.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             Group {
+                TextField("Display name (optional)", text: $displayName)
                 TextField("Email / Username", text: $email)
                     .textContentType(.username)
                     .disableAutocorrection(true)
@@ -138,11 +219,8 @@ private struct IMAPTestSheet: View {
                 SecureField("Password / App Password", text: $password)
                 TextField("IMAP Host", text: $host)
                     .disableAutocorrection(true)
-                HStack {
-                    TextField("Port", text: $port)
-                        .frame(maxWidth: 100)
-                    Toggle("SSL", isOn: $useSSL)
-                }
+                TextField("Port", text: $port)
+                    .frame(maxWidth: 100)
             }
             .textFieldStyle(.roundedBorder)
 
@@ -153,7 +231,7 @@ private struct IMAPTestSheet: View {
                 Button(action: run) {
                     HStack(spacing: 6) {
                         if running { ProgressView().controlSize(.small) }
-                        Text("Connect & Fetch 20")
+                        Text(existingAccount != nil ? "Sync 50" : "Add & Sync 50")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -167,40 +245,111 @@ private struct IMAPTestSheet: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                 }
-                .frame(maxHeight: 200)
+                .frame(maxHeight: 140)
             }
         }
         .padding(20)
-        .frame(minWidth: 420)
+        .frame(minWidth: 460)
+        .onAppear {
+            if let a = existingAccount {
+                email = a.emailAddress ?? ""
+                host = a.imapHost ?? "imap.gmail.com"
+                port = String(a.imapPort > 0 ? a.imapPort : 993)
+                displayName = a.displayName ?? ""
+            }
+        }
     }
 
     private func run() {
         running = true
         output = ""
-        let creds = IMAPClient.Credentials(
+        let creds = SwiftMailClient.Credentials(
             host: host,
-            port: UInt32(port) ?? 993,
-            useSSL: useSSL,
+            port: Int(port) ?? 993,
             username: email,
             password: password
         )
+        let coordinator = MailSyncCoordinator(container: PersistenceController.shared.container)
         Task {
             defer { running = false }
             do {
-                let coordinator = MailSyncCoordinator(container: PersistenceController.shared.container)
                 let res = try await coordinator.syncRecent(
                     credentials: creds,
                     accountEmail: email,
-                    accountDisplayName: nil,
+                    accountDisplayName: displayName.isEmpty ? nil : displayName,
                     folder: "INBOX",
-                    limit: 20
+                    limit: 50
                 )
-                let summary = "\(res.folderPath): +\(res.newMessages) new, ~\(res.updatedMessages) updated, total fetched \(res.totalInFolder)"
+                let summary = "\(res.folderPath): +\(res.newMessages) new, ~\(res.updatedMessages) updated, \(res.totalInFolder) total fetched"
                 output = summary
-                result = summary
+                onResult(summary)
+                dismiss()
             } catch {
                 output = "Error: \(error.localizedDescription)"
-                result = output
+            }
+        }
+    }
+}
+
+// MARK: - Apple Intelligence test sheet (dev tool, kept until Settings UI)
+
+private struct AppleIntelligenceTestSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var status: String = ""
+    @State private var result: String = ""
+    @State private var running = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Apple Intelligence")
+                .font(.title2.bold())
+            Text(status).font(.footnote).foregroundStyle(.secondary)
+            Button {
+                run()
+            } label: {
+                HStack(spacing: 6) {
+                    if running { ProgressView().controlSize(.small) }
+                    Text("Run Summary Test")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(running)
+            if !result.isEmpty {
+                ScrollView {
+                    Text(result)
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 220)
+            }
+            HStack {
+                Spacer()
+                Button("Close") { dismiss() }.buttonStyle(.bordered)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 420)
+        .onAppear {
+            let provider = ApplePrivateProvider()
+            status = provider.isConfigured
+                ? "Apple Intelligence: Ready"
+                : "Apple Intelligence: Not available on this device"
+        }
+    }
+
+    private func run() {
+        running = true
+        result = ""
+        Task {
+            defer { running = false }
+            do {
+                let r = try await ApplePrivateProvider().summarize(
+                    "HostMail is a native iOS and macOS email client with built-in AI assistance. It uses Apple Intelligence by default and supports BYOK for Claude, OpenAI, Yandex Alice, and GigaChat."
+                )
+                result = r
+            } catch {
+                result = "Error: \(error.localizedDescription)"
             }
         }
     }

@@ -16,14 +16,14 @@ public final class MailSyncCoordinator: @unchecked Sendable {
     }
 
     public func syncRecent(
-        credentials: IMAPClient.Credentials,
+        credentials: SwiftMailClient.Credentials,
         accountEmail: String,
         accountDisplayName: String?,
         folder: String = "INBOX",
         limit: Int = 50
     ) async throws -> SyncResult {
-        let client = IMAPClient(credentials: credentials)
-        let summaries = try await client.fetchRecentHeaders(folder: folder, limit: limit)
+        let client = SwiftMailClient(credentials: credentials)
+        let snapshots = try await client.fetchRecent(folder: folder, limit: limit)
 
         let context = container.newBackgroundContext()
         context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
@@ -42,9 +42,8 @@ public final class MailSyncCoordinator: @unchecked Sendable {
                         account: account,
                         in: context
                     )
-                    let (new, updated) = try self.upsertMessages(summaries, folder: folderObj, in: context)
-                    folderObj.totalCount = Int32(summaries.count)
-                    folderObj.unreadCount = Int32(summaries.filter { !$0.flags.contains(.seen) }.count)
+                    let (new, updated) = try self.upsertMessages(snapshots, folder: folderObj, in: context)
+                    folderObj.totalCount = Int32(snapshots.count)
                     account.lastSyncAt = Date()
                     try context.save()
 
@@ -52,7 +51,7 @@ public final class MailSyncCoordinator: @unchecked Sendable {
                         folderPath: folder,
                         newMessages: new,
                         updatedMessages: updated,
-                        totalInFolder: summaries.count
+                        totalInFolder: snapshots.count
                     ))
                 } catch {
                     cont.resume(throwing: error)
@@ -64,7 +63,7 @@ public final class MailSyncCoordinator: @unchecked Sendable {
     private func upsertAccount(
         email: String,
         displayName: String?,
-        credentials: IMAPClient.Credentials,
+        credentials: SwiftMailClient.Credentials,
         in context: NSManagedObjectContext
     ) throws -> Account {
         let request: NSFetchRequest<Account> = Account.fetchRequest()
@@ -74,7 +73,7 @@ public final class MailSyncCoordinator: @unchecked Sendable {
         if let existing = try context.fetch(request).first {
             existing.imapHost = credentials.host
             existing.imapPort = Int32(credentials.port)
-            existing.imapUseSSL = credentials.useSSL
+            existing.imapUseSSL = true
             existing.username = credentials.username
             if let displayName = displayName {
                 existing.displayName = displayName
@@ -88,7 +87,7 @@ public final class MailSyncCoordinator: @unchecked Sendable {
         account.displayName = displayName ?? email
         account.imapHost = credentials.host
         account.imapPort = Int32(credentials.port)
-        account.imapUseSSL = credentials.useSSL
+        account.imapUseSSL = true
         account.username = credentials.username
         account.createdAt = Date()
         return account
@@ -116,13 +115,13 @@ public final class MailSyncCoordinator: @unchecked Sendable {
     }
 
     private func upsertMessages(
-        _ summaries: [MessageSummary],
+        _ snapshots: [SwiftMailSnapshot],
         folder: Folder,
         in context: NSManagedObjectContext
     ) throws -> (new: Int, updated: Int) {
-        guard !summaries.isEmpty else { return (0, 0) }
+        guard !snapshots.isEmpty else { return (0, 0) }
 
-        let uids = summaries.map { Int64($0.uid) }
+        let uids = snapshots.map { Int64($0.uid) }
         let request: NSFetchRequest<Message> = Message.fetchRequest()
         request.predicate = NSPredicate(format: "folder == %@ AND uid IN %@", folder, uids)
         let existing = try context.fetch(request)
@@ -131,23 +130,23 @@ public final class MailSyncCoordinator: @unchecked Sendable {
         var newCount = 0
         var updatedCount = 0
 
-        for s in summaries {
+        for s in snapshots {
             let uid = Int64(s.uid)
             if let msg = byUID[uid] {
-                msg.flags = s.flags.rawValue
+                // Update fields that may have changed
+                msg.subject = s.subject
+                msg.from = s.from
+                msg.date = s.date
+                msg.preview = s.preview
                 updatedCount += 1
             } else {
                 let msg = Message(context: context)
                 msg.id = UUID()
                 msg.uid = uid
-                msg.messageID = s.messageID
                 msg.subject = s.subject
                 msg.from = s.from
-                msg.to = s.to
-                msg.cc = s.cc
                 msg.date = s.date
-                msg.flags = s.flags.rawValue
-                msg.hasAttachments = s.hasAttachments
+                msg.preview = s.preview
                 msg.fetchedAt = Date()
                 msg.folder = folder
                 newCount += 1
