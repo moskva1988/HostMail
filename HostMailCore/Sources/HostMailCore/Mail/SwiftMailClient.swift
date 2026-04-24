@@ -75,20 +75,20 @@ public actor SwiftMailClient {
                 try? await server.disconnect()
                 return []
             }
-            // MessageIdentifierSet<SequenceNumber> (from status.latest) does not
-            // conform to Sequence in this SwiftMail version. Build seq numbers
-            // ourselves: last `limit` messages in the mailbox.
-            let effectiveLimit = min(UInt32(limit), total)
-            let firstSeq = total - effectiveLimit + 1
+            // DIAG: mail.ru timed out on fetchRawMessage for recent messages
+            // (likely multi-MB HTML bodies exceeding SwiftMail's 10s command
+            // timeout). Fetch only the OLDEST message (seq=1, typically a
+            // small welcome mail) to isolate size vs. protocol issue.
+            // TODO: replace with header-only fetch API once we know which one
+            // SwiftMail exposes (BODY.PEEK[HEADER] or BODY.PEEK[HEADER.FIELDS]).
+            _ = limit
 
             var results: [SwiftMailSnapshot] = []
-            for seqNum in firstSeq...total {
-                let identifier = SequenceNumber(seqNum)
-                let raw = try await server.fetchRawMessage(identifier: identifier)
-                results.append(Self.makeSnapshot(uid: seqNum, raw: raw))
-            }
+            let identifier = SequenceNumber(1)
+            let raw = try await server.fetchRawMessage(identifier: identifier)
+            results.append(Self.makeSnapshot(uid: 1, raw: raw))
             try? await server.disconnect()
-            return results.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+            return results
         } catch {
             try? await server.disconnect()
             throw SwiftMailError.underlying(error)
