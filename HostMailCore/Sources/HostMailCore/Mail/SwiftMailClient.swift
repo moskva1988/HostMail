@@ -70,16 +70,22 @@ public actor SwiftMailClient {
 
         do {
             let status = try await server.selectMailbox(folder)
-            guard let identifiers = status.latest(limit) else {
+            let total = UInt32(status.messageCount)
+            guard total > 0 else {
                 try? await server.disconnect()
                 return []
             }
+            // MessageIdentifierSet<SequenceNumber> (from status.latest) does not
+            // conform to Sequence in this SwiftMail version. Build seq numbers
+            // ourselves: last `limit` messages in the mailbox.
+            let effectiveLimit = min(UInt32(limit), total)
+            let firstSeq = total - effectiveLimit + 1
 
             var results: [SwiftMailSnapshot] = []
-            for identifier in identifiers {
+            for seqNum in firstSeq...total {
+                let identifier = SequenceNumber(seqNum)
                 let raw = try await server.fetchRawMessage(identifier: identifier)
-                let uidValue = UInt32(truncatingIfNeeded: extractUIDValue(identifier))
-                results.append(Self.makeSnapshot(uid: uidValue, raw: raw))
+                results.append(Self.makeSnapshot(uid: seqNum, raw: raw))
             }
             try? await server.disconnect()
             return results.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
@@ -93,18 +99,6 @@ public actor SwiftMailClient {
     }
 
     #if canImport(SwiftMail)
-    private func extractUIDValue(_ identifier: Any) -> UInt64 {
-        // MessageIdentifier<UID> has `.value: UInt32` in SwiftMail's public API.
-        // Use Mirror in case exact type differs slightly across versions.
-        let mirror = Mirror(reflecting: identifier)
-        for child in mirror.children where child.label == "value" {
-            if let v = child.value as? UInt32 { return UInt64(v) }
-            if let v = child.value as? UInt64 { return v }
-            if let v = child.value as? Int { return UInt64(v) }
-        }
-        return 0
-    }
-
     private static func makeSnapshot(uid: UInt32, raw: Data) -> SwiftMailSnapshot {
         let text = String(data: raw, encoding: .utf8)
             ?? String(data: raw, encoding: .isoLatin1)
