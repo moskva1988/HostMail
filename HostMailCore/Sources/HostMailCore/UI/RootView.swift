@@ -105,7 +105,14 @@ private struct InboxView: View {
     }
 
     private var inboxList: some View {
-        List {
+        VStack(spacing: 0) {
+            statusHeader
+            messagesList
+        }
+    }
+
+    private var statusHeader: some View {
+        VStack(spacing: 4) {
             if let summary = currentBanner {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: summary.icon)
@@ -113,6 +120,7 @@ private struct InboxView: View {
                     Text(summary.text)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Spacer()
                 }
             }
             HStack {
@@ -126,12 +134,24 @@ private struct InboxView: View {
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
 
-            if messages.isEmpty {
+    @ViewBuilder
+    private var messagesList: some View {
+        if messages.isEmpty {
+            VStack {
+                Spacer()
                 Text("Inbox is empty — tap Sync to fetch messages.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-            } else {
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            List {
                 ForEach(messages, id: \.objectID) { msg in
                     NavigationLink {
                         MessageDetailView(message: msg)
@@ -140,10 +160,10 @@ private struct InboxView: View {
                     }
                 }
             }
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #endif
         }
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #endif
     }
 
     private struct Banner {

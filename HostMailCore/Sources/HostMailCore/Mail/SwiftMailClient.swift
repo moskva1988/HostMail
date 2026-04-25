@@ -36,10 +36,12 @@ public struct SwiftMailSnapshot: Sendable, Hashable {
 public struct SwiftMailBody: Sendable, Hashable {
     public let plain: String?
     public let html: String?
+    public let raw: String?
 
-    public init(plain: String?, html: String?) {
+    public init(plain: String?, html: String?, raw: String? = nil) {
         self.plain = plain
         self.html = html
+        self.raw = raw
     }
 }
 
@@ -153,18 +155,15 @@ public actor SwiftMailClient {
         if mainType.hasPrefix("multipart/"), let boundary = params["boundary"] {
             let parsed = parseMultipart(bodyText, boundary: boundary)
             if parsed.plain == nil && parsed.html == nil {
-                // MIME parser couldn't extract a readable part — show the raw
-                // multipart body so the user gets *something* and we can debug
-                // by eye what the server actually returned.
-                return SwiftMailBody(plain: bodyText, html: nil)
+                return SwiftMailBody(plain: nil, html: nil, raw: text)
             }
-            return parsed
+            return SwiftMailBody(plain: parsed.plain, html: parsed.html, raw: text)
         }
         let decoded = decodeContent(bodyText, transferEncoding: cte, charset: charset)
         if mainType == "text/html" {
-            return SwiftMailBody(plain: nil, html: decoded)
+            return SwiftMailBody(plain: nil, html: decoded, raw: text)
         }
-        return SwiftMailBody(plain: decoded, html: nil)
+        return SwiftMailBody(plain: decoded, html: nil, raw: text)
     }
 
     private static func splitHeaderBody(_ text: String) -> (header: String, body: String) {

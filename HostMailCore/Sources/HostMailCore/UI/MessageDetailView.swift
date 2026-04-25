@@ -125,8 +125,19 @@ public struct MessageDetailView: View {
             let result = try await client.fetchBody(sequenceNumber: seqNum, folder: folder)
 
             await MainActor.run {
-                let display = result.plain ?? (result.html.map(stripHTML) ?? "")
-                body_ = display
+                if let plain = result.plain, !plain.isEmpty {
+                    body_ = plain
+                } else if let html = result.html, !html.isEmpty {
+                    body_ = stripHTML(html)
+                } else if let raw = result.raw, !raw.isEmpty {
+                    // Parser couldn't extract a readable part — surface raw RFC822
+                    // (truncated) so the user gets *something* and we can debug
+                    // by eye what the server actually returned.
+                    let snippet = String(raw.prefix(3000))
+                    body_ = "(MIME parse failed — showing raw RFC822 below)\n\n" + snippet
+                } else {
+                    body_ = "(empty body)"
+                }
             }
 
             // Cache to Core Data on background context to avoid main thread save.
