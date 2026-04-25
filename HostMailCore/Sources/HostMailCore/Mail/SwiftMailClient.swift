@@ -112,10 +112,14 @@ public actor SwiftMailClient {
         #endif
     }
 
-    // Fetches the full RFC822 of one message and extracts text/plain + text/html
-    // bodies via a minimal MIME parser. Used for lazy "tap to read" — result is
-    // cached in Core Data so this only runs once per message.
-    public func fetchBody(sequenceNumber: UInt32, folder: String = "INBOX") async throws -> SwiftMailBody {
+    // Fetches the full RFC822 of one message by IMAP UID and extracts
+    // text/plain + text/html bodies via a minimal MIME parser. Used for lazy
+    // "tap to read" — result is cached in Core Data so this only runs once
+    // per message. UID is persistent across the mailbox lifetime, unlike
+    // sequence numbers which shift on EXPUNGE — that distinction is critical:
+    // passing a UID as a SequenceNumber asks the server for position N in the
+    // current mailbox, which usually returns 0 bytes.
+    public func fetchBody(uid: UInt32, folder: String = "INBOX") async throws -> SwiftMailBody {
         #if canImport(SwiftMail)
         let server = IMAPServer(host: credentials.host, port: credentials.port)
         do {
@@ -127,7 +131,7 @@ public actor SwiftMailClient {
 
         do {
             _ = try await server.selectMailbox(folder)
-            let raw = try await server.fetchRawMessage(identifier: SequenceNumber(sequenceNumber))
+            let raw = try await server.fetchRawMessage(identifier: UID(uid))
             try? await server.disconnect()
             return Self.extractBody(from: raw)
         } catch {

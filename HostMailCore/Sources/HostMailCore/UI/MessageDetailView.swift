@@ -115,14 +115,14 @@ public struct MessageDetailView: View {
             username: account.username ?? email,
             password: password
         )
-        let seqNum = UInt32(message.uid)
+        let uid = UInt32(message.uid)
         let messageID = message.objectID
 
         loading = true
         defer { loading = false }
         do {
             let client = SwiftMailClient(credentials: creds)
-            let result = try await client.fetchBody(sequenceNumber: seqNum, folder: folder)
+            let result = try await client.fetchBody(uid: uid, folder: folder)
 
             await MainActor.run {
                 if let plain = result.plain, !plain.isEmpty {
