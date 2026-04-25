@@ -2,11 +2,28 @@ import CoreData
 import SwiftUI
 
 public struct RootView: View {
+    @State private var showSplash = true
+
     public init() {}
 
     public var body: some View {
-        NavigationStack {
-            InboxView()
+        ZStack {
+            NavigationStack {
+                InboxView()
+            }
+            .tint(HostTheme.accent)
+            .opacity(showSplash ? 0 : 1)
+
+            if showSplash {
+                SplashView()
+                    .transition(.opacity)
+            }
+        }
+        .task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            withAnimation(.easeInOut(duration: 0.4)) {
+                showSplash = false
+            }
         }
     }
 }
@@ -31,6 +48,7 @@ private struct InboxView: View {
     @State private var showAITest = false
     @State private var lastSyncSummary: String = ""
     @State private var syncing = false
+    @State private var syncError: String?
 
     var body: some View {
         Group {
@@ -40,24 +58,33 @@ private struct InboxView: View {
                 inboxList
             }
         }
-        .navigationTitle("HostMail")
+        .navigationTitle(navTitle)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.large)
+        #endif
         .toolbar { toolbar }
         .sheet(isPresented: $showSyncSheet) {
             SyncSheet(
                 existingAccount: accounts.first,
-                onResult: { lastSyncSummary = $0 }
+                onResult: { lastSyncSummary = $0; syncError = nil }
             )
         }
         .sheet(isPresented: $showAITest) {
             AppleIntelligenceTestSheet()
         }
+        .task { await autoSyncIfPossible() }
+    }
+
+    private var navTitle: String {
+        if accounts.isEmpty { return "HostMail" }
+        return accounts.first?.displayName ?? accounts.first?.emailAddress ?? "HostMail"
     }
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Image(systemName: "tray")
-                .font(.system(size: 64))
-                .foregroundStyle(.tertiary)
+            Image(systemName: "envelope.badge")
+                .font(.system(size: 64, weight: .light))
+                .foregroundStyle(HostTheme.accent)
             Text("No account yet")
                 .font(.title3.weight(.semibold))
             Text("Add an IMAP account to start syncing your inbox.")
@@ -71,6 +98,7 @@ private struct InboxView: View {
                 Text("Add Account").frame(minWidth: 180)
             }
             .buttonStyle(.borderedProminent)
+            .tint(HostTheme.accent)
             .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -78,14 +106,18 @@ private struct InboxView: View {
 
     private var inboxList: some View {
         List {
-            if !lastSyncSummary.isEmpty {
+            if let summary = currentBanner {
                 Section {
-                    Text(lastSyncSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: summary.icon)
+                            .foregroundStyle(summary.tint)
+                        Text(summary.text)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
-            Section(header: header) {
+            Section {
                 if messages.isEmpty {
                     Text("Inbox is empty — tap Sync to fetch messages.")
                         .font(.subheadline)
@@ -93,9 +125,15 @@ private struct InboxView: View {
                         .padding(.vertical, 4)
                 } else {
                     ForEach(messages, id: \.objectID) { msg in
-                        MessageRow(message: msg)
+                        NavigationLink {
+                            MessageDetailView(message: msg)
+                        } label: {
+                            MessageRow(message: msg)
+                        }
                     }
                 }
+            } header: {
+                inboxHeader
             }
         }
         #if os(iOS)
@@ -103,28 +141,37 @@ private struct InboxView: View {
         #endif
     }
 
-    private var header: some View {
+    private var inboxHeader: some View {
         HStack {
-            if let account = accounts.first {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(account.displayName ?? account.emailAddress ?? "Account")
-                        .font(.subheadline.weight(.semibold))
-                    if let date = account.lastSyncAt {
-                        Text("Last synced \(date.formatted(.relative(presentation: .named)))")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Never synced")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            if let date = accounts.first?.lastSyncAt {
+                Text("Synced \(date.formatted(.relative(presentation: .named)))")
+            } else {
+                Text("Never synced")
             }
             Spacer()
             Text("\(messages.count) cached")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
         }
+        .font(.caption2)
+        .textCase(nil)
+    }
+
+    private struct Banner {
+        let text: String
+        let icon: String
+        let tint: Color
+    }
+
+    private var currentBanner: Banner? {
+        if syncing {
+            return Banner(text: "Syncing inbox…", icon: "arrow.clockwise", tint: HostTheme.accent)
+        }
+        if let error = syncError {
+            return Banner(text: error, icon: "exclamationmark.triangle", tint: HostTheme.errorRed)
+        }
+        if !lastSyncSummary.isEmpty {
+            return Banner(text: lastSyncSummary, icon: "checkmark.circle", tint: HostTheme.successGreen)
+        }
+        return nil
     }
 
     @ToolbarContentBuilder
@@ -149,12 +196,48 @@ private struct InboxView: View {
             }
         }
     }
+
+    // Silent background sync if we already know about an account AND the password
+    // is in Keychain — runs once when InboxView appears.
+    private func autoSyncIfPossible() async {
+        guard let account = accounts.first,
+              let email = account.emailAddress,
+              let host = account.imapHost else { return }
+        guard let password = try? KeychainStore().loadPassword(for: email), let password else { return }
+
+        let creds = SwiftMailClient.Credentials(
+            host: host,
+            port: Int(account.imapPort > 0 ? account.imapPort : 993),
+            username: account.username ?? email,
+            password: password
+        )
+        await runSync(credentials: creds, accountEmail: email, displayName: account.displayName)
+    }
+
+    fileprivate func runSync(credentials: SwiftMailClient.Credentials, accountEmail: String, displayName: String?) async {
+        syncing = true
+        defer { syncing = false }
+        do {
+            let coordinator = MailSyncCoordinator(container: PersistenceController.shared.container)
+            let res = try await coordinator.syncRecent(
+                credentials: credentials,
+                accountEmail: accountEmail,
+                accountDisplayName: displayName,
+                folder: "INBOX",
+                limit: 50
+            )
+            lastSyncSummary = "INBOX: +\(res.newMessages) new, ~\(res.updatedMessages) updated, \(res.totalInFolder) total"
+            syncError = nil
+        } catch {
+            syncError = "Sync failed: \(error.localizedDescription)"
+        }
+    }
 }
 
 // MARK: - Message row
 
 private struct MessageRow: View {
-    let message: Message
+    @ObservedObject var message: Message
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -196,6 +279,7 @@ private struct SyncSheet: View {
     @State private var host: String = "imap.gmail.com"
     @State private var port: String = "993"
     @State private var displayName: String = ""
+    @State private var savePassword: Bool = true
     @State private var running = false
     @State private var output: String = ""
 
@@ -203,26 +287,29 @@ private struct SyncSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(existingAccount != nil ? "Sync Inbox" : "Add Account")
                 .font(.title2.bold())
-            Text("Password is held in memory only for this sync. Persistent Keychain storage arrives in the Add-Account screen.")
+            Text("If \"Save password\" is on, the password is stored in the device Keychain — never in iCloud Core Data.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             Group {
                 TextField("Display name (optional)", text: $displayName)
                 TextField("Email / Username", text: $email)
-                    .textContentType(.username)
                     .disableAutocorrection(true)
                 #if os(iOS)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.emailAddress)
                 #endif
                 SecureField("Password / App Password", text: $password)
+                    .textContentType(.password)
                 TextField("IMAP Host", text: $host)
                     .disableAutocorrection(true)
                 TextField("Port", text: $port)
                     .frame(maxWidth: 100)
             }
             .textFieldStyle(.roundedBorder)
+
+            Toggle("Save password to Keychain", isOn: $savePassword)
+                .tint(HostTheme.accent)
 
             HStack {
                 Button("Cancel") { dismiss() }
@@ -235,6 +322,7 @@ private struct SyncSheet: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(HostTheme.accent)
                 .disabled(running || email.isEmpty || password.isEmpty || host.isEmpty)
             }
 
@@ -256,6 +344,9 @@ private struct SyncSheet: View {
                 host = a.imapHost ?? "imap.gmail.com"
                 port = String(a.imapPort > 0 ? a.imapPort : 993)
                 displayName = a.displayName ?? ""
+                if let saved = try? KeychainStore().loadPassword(for: email), let saved {
+                    password = saved
+                }
             }
         }
     }
@@ -270,17 +361,25 @@ private struct SyncSheet: View {
             password: password
         )
         let coordinator = MailSyncCoordinator(container: PersistenceController.shared.container)
+        let pwd = password
+        let saveFlag = savePassword
+        let userEmail = email
         Task {
             defer { running = false }
             do {
                 let res = try await coordinator.syncRecent(
                     credentials: creds,
-                    accountEmail: email,
+                    accountEmail: userEmail,
                     accountDisplayName: displayName.isEmpty ? nil : displayName,
                     folder: "INBOX",
                     limit: 50
                 )
-                let summary = "\(res.folderPath): +\(res.newMessages) new, ~\(res.updatedMessages) updated, \(res.totalInFolder) total fetched"
+                if saveFlag {
+                    try? KeychainStore().savePassword(pwd, for: userEmail)
+                } else {
+                    try? KeychainStore().deletePassword(for: userEmail)
+                }
+                let summary = "INBOX: +\(res.newMessages) new, ~\(res.updatedMessages) updated, \(res.totalInFolder) total"
                 output = summary
                 onResult(summary)
                 dismiss()
@@ -291,7 +390,7 @@ private struct SyncSheet: View {
     }
 }
 
-// MARK: - Apple Intelligence test sheet (dev tool, kept until Settings UI)
+// MARK: - Apple Intelligence test sheet (dev tool)
 
 private struct AppleIntelligenceTestSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -313,6 +412,7 @@ private struct AppleIntelligenceTestSheet: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .tint(HostTheme.accent)
             .disabled(running)
             if !result.isEmpty {
                 ScrollView {
