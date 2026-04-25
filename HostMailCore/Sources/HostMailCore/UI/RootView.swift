@@ -107,52 +107,43 @@ private struct InboxView: View {
     private var inboxList: some View {
         List {
             if let summary = currentBanner {
-                Section {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: summary.icon)
-                            .foregroundStyle(summary.tint)
-                        Text(summary.text)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: summary.icon)
+                        .foregroundStyle(summary.tint)
+                    Text(summary.text)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            Section {
-                if messages.isEmpty {
-                    Text("Inbox is empty — tap Sync to fetch messages.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 4)
+            HStack {
+                if let date = accounts.first?.lastSyncAt {
+                    Text("Synced \(date.formatted(.relative(presentation: .named)))")
                 } else {
-                    ForEach(messages, id: \.objectID) { msg in
-                        NavigationLink {
-                            MessageDetailView(message: msg)
-                        } label: {
-                            MessageRow(message: msg)
-                        }
+                    Text("Never synced")
+                }
+                Spacer()
+                Text("\(messages.count) cached")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
+            if messages.isEmpty {
+                Text("Inbox is empty — tap Sync to fetch messages.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(messages, id: \.objectID) { msg in
+                    NavigationLink {
+                        MessageDetailView(message: msg)
+                    } label: {
+                        MessageRow(message: msg)
                     }
                 }
-            } header: {
-                inboxHeader
             }
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
-    }
-
-    private var inboxHeader: some View {
-        HStack {
-            if let date = accounts.first?.lastSyncAt {
-                Text("Synced \(date.formatted(.relative(presentation: .named)))")
-            } else {
-                Text("Never synced")
-            }
-            Spacer()
-            Text("\(messages.count) cached")
-        }
-        .font(.caption2)
-        .textCase(nil)
     }
 
     private struct Banner {

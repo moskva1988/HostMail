@@ -151,7 +151,14 @@ public actor SwiftMailClient {
         let charset = params["charset"] ?? "utf-8"
 
         if mainType.hasPrefix("multipart/"), let boundary = params["boundary"] {
-            return parseMultipart(bodyText, boundary: boundary)
+            let parsed = parseMultipart(bodyText, boundary: boundary)
+            if parsed.plain == nil && parsed.html == nil {
+                // MIME parser couldn't extract a readable part — show the raw
+                // multipart body so the user gets *something* and we can debug
+                // by eye what the server actually returned.
+                return SwiftMailBody(plain: bodyText, html: nil)
+            }
+            return parsed
         }
         let decoded = decodeContent(bodyText, transferEncoding: cte, charset: charset)
         if mainType == "text/html" {
@@ -224,7 +231,10 @@ public actor SwiftMailClient {
         let lines = body.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false)
         for line in lines {
             let s = String(line)
-            if s == delim || s == endDelim {
+            // Trim trailing whitespace/CR — boundaries may have trailing space
+            // or stray \r that escaped our earlier replacement.
+            let trimmed = s.trimmingCharacters(in: .whitespaces)
+            if trimmed == delim || trimmed == endDelim {
                 if !current.isEmpty { parts.append(current); current = "" }
             } else {
                 current += s + "\n"
