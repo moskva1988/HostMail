@@ -10,6 +10,7 @@ public final class Folder: NSManagedObject {
     @NSManaged public var id: UUID?
     @NSManaged public var name: String?
     @NSManaged public var path: String?
+    @NSManaged public var role: String?
     @NSManaged public var uidValidity: Int64
     @NSManaged public var unreadCount: Int32
     @NSManaged public var totalCount: Int32

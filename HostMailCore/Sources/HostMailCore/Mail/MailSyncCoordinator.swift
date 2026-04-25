@@ -109,9 +109,61 @@ public final class MailSyncCoordinator: @unchecked Sendable {
         let folder = Folder(context: context)
         folder.id = UUID()
         folder.path = path
-        folder.name = path
+        folder.name = path.split(separator: "/").last.map(String.init) ?? path
+        folder.role = path.uppercased() == "INBOX" ? MailFolderRole.inbox.rawValue : MailFolderRole.other.rawValue
         folder.account = account
         return folder
+    }
+
+    public func syncFolders(
+        credentials: SwiftMailClient.Credentials,
+        accountEmail: String,
+        accountDisplayName: String?
+    ) async throws -> [String] {
+        let client = SwiftMailClient(credentials: credentials)
+        let infos = try await client.listFolders()
+
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+
+        return try await withCheckedThrowingContinuation { cont in
+            context.perform {
+                do {
+                    let account = try self.upsertAccount(
+                        email: accountEmail,
+                        displayName: accountDisplayName,
+                        credentials: credentials,
+                        in: context
+                    )
+                    var paths: [String] = []
+                    for info in infos {
+                        let folder = try self.upsertFolder(path: info.path, account: account, in: context)
+                        folder.role = info.role.rawValue
+                        folder.name = info.displayName
+                        paths.append(info.path)
+                    }
+                    try context.save()
+                    cont.resume(returning: paths)
+                } catch {
+                    cont.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func createFolder(
+        credentials: SwiftMailClient.Credentials,
+        accountEmail: String,
+        path: String
+    ) async throws {
+        let client = SwiftMailClient(credentials: credentials)
+        try await client.createFolder(path: path)
+        // Refresh folder list so the new one shows up locally.
+        _ = try await syncFolders(
+            credentials: credentials,
+            accountEmail: accountEmail,
+            accountDisplayName: nil
+        )
     }
 
     private func upsertMessages(

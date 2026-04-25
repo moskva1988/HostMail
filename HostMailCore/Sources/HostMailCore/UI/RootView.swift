@@ -8,11 +8,9 @@ public struct RootView: View {
 
     public var body: some View {
         ZStack {
-            NavigationStack {
-                InboxView()
-            }
-            .tint(HostTheme.accent)
-            .opacity(showSplash ? 0 : 1)
+            ShellView()
+                .tint(HostTheme.accent)
+                .opacity(showSplash ? 0 : 1)
 
             if showSplash {
                 SplashView()
@@ -28,262 +26,147 @@ public struct RootView: View {
     }
 }
 
-// MARK: - Inbox
+// MARK: - 3-column shell (Sidebar / Messages / Detail)
 
-private struct InboxView: View {
+private struct ShellView: View {
     @Environment(\.managedObjectContext) private var context
-
-    @FetchRequest(
-        sortDescriptors: [
-            NSSortDescriptor(keyPath: \Message.date, ascending: false),
-            NSSortDescriptor(keyPath: \Message.fetchedAt, ascending: false)
-        ]
-    ) private var messages: FetchedResults<Message>
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Account.createdAt, ascending: true)]
     ) private var accounts: FetchedResults<Account>
 
+    @FetchRequest(
+        sortDescriptors: [
+            NSSortDescriptor(keyPath: \Folder.role, ascending: true),
+            NSSortDescriptor(keyPath: \Folder.name, ascending: true)
+        ]
+    ) private var folders: FetchedResults<Folder>
+
+    @State private var sidebarSelection: SidebarItem?
+    @State private var selectedMessage: NSManagedObjectID?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showSyncSheet = false
-    @State private var showAITest = false
-    @State private var lastSyncSummary: String = ""
-    @State private var syncing = false
-    @State private var syncError: String?
+    @State private var showNewFolderSheet = false
 
     var body: some View {
-        Group {
-            if accounts.isEmpty {
-                emptyState
-            } else {
-                inboxList
-            }
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(selection: $sidebarSelection, showNewFolderSheet: $showNewFolderSheet)
+                .navigationTitle("HostMail")
+                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 320)
+                .toolbar {
+                    ToolbarItem {
+                        Button {
+                            showSyncSheet = true
+                        } label: {
+                            Image(systemName: accounts.isEmpty ? "plus.circle" : "arrow.clockwise")
+                        }
+                    }
+                }
+        } content: {
+            contentColumn
+                .navigationSplitViewColumnWidth(min: 320, ideal: 380)
+        } detail: {
+            detailColumn
         }
-        .navigationTitle(navTitle)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
-        #endif
-        .toolbar { toolbar }
         .sheet(isPresented: $showSyncSheet) {
-            SyncSheet(
-                existingAccount: accounts.first,
-                onResult: { lastSyncSummary = $0; syncError = nil }
-            )
+            SyncSheet(existingAccount: accounts.first)
         }
-        .sheet(isPresented: $showAITest) {
-            AppleIntelligenceTestSheet()
+        .sheet(isPresented: $showNewFolderSheet) {
+            NewFolderSheet(account: accounts.first)
         }
-        .task { await autoSyncIfPossible() }
-    }
-
-    private var navTitle: String {
-        if accounts.isEmpty { return "HostMail" }
-        return accounts.first?.displayName ?? accounts.first?.emailAddress ?? "HostMail"
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "envelope.badge")
-                .font(.system(size: 64, weight: .light))
-                .foregroundStyle(HostTheme.accent)
-            Text("No account yet")
-                .font(.title3.weight(.semibold))
-            Text("Add an IMAP account to start syncing your inbox.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            Button {
-                showSyncSheet = true
-            } label: {
-                Text("Add Account").frame(minWidth: 180)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(HostTheme.accent)
-            .padding(.top, 8)
+        .onAppear { applyDefaultSelection() }
+        .onChange(of: folders.count) { _, _ in
+            applyDefaultSelection()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var inboxList: some View {
-        VStack(spacing: 0) {
-            statusHeader
-            messagesList
+        .task {
+            await autoBootstrap()
         }
-    }
-
-    private var statusHeader: some View {
-        VStack(spacing: 4) {
-            if let summary = currentBanner {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: summary.icon)
-                        .foregroundStyle(summary.tint)
-                    Text(summary.text)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-            }
-            HStack {
-                if let date = accounts.first?.lastSyncAt {
-                    Text("Synced \(date.formatted(.relative(presentation: .named)))")
-                } else {
-                    Text("Never synced")
-                }
-                Spacer()
-                Text("\(messages.count) cached")
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 
     @ViewBuilder
-    private var messagesList: some View {
-        if messages.isEmpty {
-            VStack {
-                Spacer()
-                Text("Inbox is empty — tap Sync to fetch messages.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer()
+    private var contentColumn: some View {
+        switch sidebarSelection {
+        case .folder(let id):
+            if let folder = try? context.existingObject(with: id) as? Folder {
+                FolderMessagesView(folder: folder, selectedMessage: $selectedMessage)
+            } else {
+                Text("Folder not found").foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
-        } else {
-            List {
-                ForEach(messages, id: \.objectID) { msg in
-                    NavigationLink {
-                        MessageDetailView(message: msg)
-                    } label: {
-                        MessageRow(message: msg)
-                    }
-                }
-            }
-            #if os(iOS)
-            .listStyle(.insetGrouped)
-            #endif
-        }
-    }
-
-    private struct Banner {
-        let text: String
-        let icon: String
-        let tint: Color
-    }
-
-    private var currentBanner: Banner? {
-        if syncing {
-            return Banner(text: "Syncing inbox…", icon: "arrow.clockwise", tint: HostTheme.accent)
-        }
-        if let error = syncError {
-            return Banner(text: error, icon: "exclamationmark.triangle", tint: HostTheme.errorRed)
-        }
-        if !lastSyncSummary.isEmpty {
-            return Banner(text: lastSyncSummary, icon: "checkmark.circle", tint: HostTheme.successGreen)
-        }
-        return nil
-    }
-
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                showSyncSheet = true
-            } label: {
-                if syncing {
-                    ProgressView()
+        case .settings:
+            SettingsView()
+        case .addAccount, .none:
+            VStack(spacing: 12) {
+                Image(systemName: "envelope.badge")
+                    .font(.system(size: 48))
+                    .foregroundStyle(HostTheme.accent)
+                Text("Welcome to HostMail")
+                    .font(.title3.weight(.semibold))
+                if accounts.isEmpty {
+                    Text("Add an IMAP account to start.")
+                        .foregroundStyle(.secondary)
+                    Button("Add Account") { showSyncSheet = true }
+                        .buttonStyle(.borderedProminent)
+                        .tint(HostTheme.accent)
                 } else {
-                    Image(systemName: accounts.isEmpty ? "plus.circle" : "arrow.clockwise")
+                    Text("Pick a folder from the sidebar.")
+                        .foregroundStyle(.secondary)
                 }
             }
-            .disabled(syncing)
-        }
-        ToolbarItem(placement: .secondaryAction) {
-            Button {
-                showAITest = true
-            } label: {
-                Label("Test Apple Intelligence", systemImage: "brain.head.profile")
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    // Silent background sync if we already know about an account AND the password
-    // is in Keychain — runs once when InboxView appears.
-    private func autoSyncIfPossible() async {
+    @ViewBuilder
+    private var detailColumn: some View {
+        if let id = selectedMessage,
+           let msg = try? context.existingObject(with: id) as? Message {
+            MessageDetailView(message: msg)
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "envelope.open")
+                    .font(.system(size: 36, weight: .light))
+                    .foregroundStyle(.tertiary)
+                Text("Select a message")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func applyDefaultSelection() {
+        if sidebarSelection == nil, let inbox = folders.first(where: { $0.role == "inbox" }) ?? folders.first {
+            sidebarSelection = .folder(inbox.objectID)
+        }
+    }
+
+    // Bootstraps the first launch with a saved Keychain account: refresh the
+    // folder list (to populate the sidebar) and let FolderMessagesView do the
+    // initial INBOX sync once the user lands there.
+    private func autoBootstrap() async {
         guard let account = accounts.first,
               let email = account.emailAddress,
               let host = account.imapHost else { return }
         guard let password = try? KeychainStore().loadPassword(for: email) else { return }
-
         let creds = SwiftMailClient.Credentials(
             host: host,
             port: Int(account.imapPort > 0 ? account.imapPort : 993),
             username: account.username ?? email,
             password: password
         )
-        await runSync(credentials: creds, accountEmail: email, displayName: account.displayName)
-    }
-
-    fileprivate func runSync(credentials: SwiftMailClient.Credentials, accountEmail: String, displayName: String?) async {
-        syncing = true
-        defer { syncing = false }
-        do {
-            let coordinator = MailSyncCoordinator(container: PersistenceController.shared.container)
-            let res = try await coordinator.syncRecent(
-                credentials: credentials,
-                accountEmail: accountEmail,
-                accountDisplayName: displayName,
-                folder: "INBOX",
-                limit: 50
-            )
-            lastSyncSummary = "INBOX: +\(res.newMessages) new, ~\(res.updatedMessages) updated, \(res.totalInFolder) total"
-            syncError = nil
-        } catch {
-            syncError = "Sync failed: \(error.localizedDescription)"
-        }
+        let coord = MailSyncCoordinator(container: PersistenceController.shared.container)
+        _ = try? await coord.syncFolders(
+            credentials: creds,
+            accountEmail: email,
+            accountDisplayName: account.displayName
+        )
     }
 }
 
-// MARK: - Message row
-
-private struct MessageRow: View {
-    @ObservedObject var message: Message
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(message.from ?? "(unknown sender)")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Spacer()
-                if let date = message.date {
-                    Text(date.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Text(message.subject ?? "(no subject)")
-                .font(.subheadline)
-                .lineLimit(2)
-            if let preview = message.preview, !preview.isEmpty {
-                Text(preview)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-// MARK: - Sync sheet
+// MARK: - Sync sheet (Add account / re-sync)
 
 private struct SyncSheet: View {
     @Environment(\.dismiss) private var dismiss
-
     let existingAccount: Account?
-    let onResult: (String) -> Void
 
     @State private var email: String = ""
     @State private var password: String = ""
@@ -296,9 +179,9 @@ private struct SyncSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(existingAccount != nil ? "Sync Inbox" : "Add Account")
+            Text(existingAccount != nil ? "Sync Account" : "Add Account")
                 .font(.title2.bold())
-            Text("If \"Save password\" is on, the password is stored in the device Keychain — never in iCloud Core Data.")
+            Text("Password is held in memory; if 'Save password' is on it goes to the device Keychain (never iCloud Core Data).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -375,13 +258,19 @@ private struct SyncSheet: View {
         let pwd = password
         let saveFlag = savePassword
         let userEmail = email
+        let displayNameLocal = displayName
         Task {
             defer { running = false }
             do {
+                _ = try await coordinator.syncFolders(
+                    credentials: creds,
+                    accountEmail: userEmail,
+                    accountDisplayName: displayNameLocal.isEmpty ? nil : displayNameLocal
+                )
                 let res = try await coordinator.syncRecent(
                     credentials: creds,
                     accountEmail: userEmail,
-                    accountDisplayName: displayName.isEmpty ? nil : displayName,
+                    accountDisplayName: displayNameLocal.isEmpty ? nil : displayNameLocal,
                     folder: "INBOX",
                     limit: 50
                 )
@@ -390,9 +279,7 @@ private struct SyncSheet: View {
                 } else {
                     try? KeychainStore().deletePassword(for: userEmail)
                 }
-                let summary = "INBOX: +\(res.newMessages) new, ~\(res.updatedMessages) updated, \(res.totalInFolder) total"
-                output = summary
-                onResult(summary)
+                output = "INBOX: +\(res.newMessages) new, ~\(res.updatedMessages) updated"
                 dismiss()
             } catch {
                 output = "Error: \(error.localizedDescription)"
@@ -401,66 +288,82 @@ private struct SyncSheet: View {
     }
 }
 
-// MARK: - Apple Intelligence test sheet (dev tool)
+// MARK: - New Folder sheet (IMAP CREATE)
 
-private struct AppleIntelligenceTestSheet: View {
+private struct NewFolderSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var status: String = ""
-    @State private var result: String = ""
+    let account: Account?
+
+    @State private var path: String = ""
     @State private var running = false
+    @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Apple Intelligence")
-                .font(.title2.bold())
-            Text(status).font(.footnote).foregroundStyle(.secondary)
-            Button {
-                run()
-            } label: {
-                HStack(spacing: 6) {
-                    if running { ProgressView().controlSize(.small) }
-                    Text("Run Summary Test")
-                }
+            Text("New Folder").font(.title2.bold())
+            Text("Use a slash to nest, e.g. INBOX/Receipts.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Folder path", text: $path)
+                .textFieldStyle(.roundedBorder)
+                .disableAutocorrection(true)
+
+            if let error = error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(HostTheme.errorRed)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(HostTheme.accent)
-            .disabled(running)
-            if !result.isEmpty {
-                ScrollView {
-                    Text(result)
-                        .font(.caption)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 220)
-            }
+
             HStack {
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(.bordered)
                 Spacer()
-                Button("Close") { dismiss() }.buttonStyle(.bordered)
+                Button(action: create) {
+                    HStack(spacing: 6) {
+                        if running { ProgressView().controlSize(.small) }
+                        Text("Create")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(HostTheme.accent)
+                .disabled(running || path.isEmpty || account == nil)
             }
         }
         .padding(20)
-        .frame(minWidth: 420)
-        .onAppear {
-            let provider = ApplePrivateProvider()
-            status = provider.isConfigured
-                ? "Apple Intelligence: Ready"
-                : "Apple Intelligence: Not available on this device"
-        }
+        .frame(minWidth: 380)
     }
 
-    private func run() {
+    private func create() {
+        guard let account = account,
+              let email = account.emailAddress,
+              let host = account.imapHost else {
+            error = "No account."
+            return
+        }
+        guard let password = try? KeychainStore().loadPassword(for: email) else {
+            error = "Password not in Keychain."
+            return
+        }
+        let creds = SwiftMailClient.Credentials(
+            host: host,
+            port: Int(account.imapPort > 0 ? account.imapPort : 993),
+            username: account.username ?? email,
+            password: password
+        )
+        let folderPath = path
         running = true
-        result = ""
         Task {
             defer { running = false }
             do {
-                let r = try await ApplePrivateProvider().summarize(
-                    "HostMail is a native iOS and macOS email client with built-in AI assistance. It uses Apple Intelligence by default and supports BYOK for Claude, OpenAI, Yandex Alice, and GigaChat."
+                let coord = MailSyncCoordinator(container: PersistenceController.shared.container)
+                try await coord.createFolder(
+                    credentials: creds,
+                    accountEmail: email,
+                    path: folderPath
                 )
-                result = r
+                dismiss()
             } catch {
-                result = "Error: \(error.localizedDescription)"
+                self.error = "Failed: \(error.localizedDescription)"
             }
         }
     }

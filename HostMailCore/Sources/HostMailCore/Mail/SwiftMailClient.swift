@@ -45,6 +45,28 @@ public struct SwiftMailBody: Sendable, Hashable {
     }
 }
 
+public enum MailFolderRole: String, Sendable, Codable {
+    case inbox
+    case drafts
+    case sent
+    case trash
+    case junk
+    case archive
+    case other
+}
+
+public struct SwiftMailFolderInfo: Sendable, Hashable {
+    public let path: String          // raw IMAP mailbox path, e.g. "INBOX/Personal"
+    public let displayName: String   // last path component
+    public let role: MailFolderRole
+
+    public init(path: String, displayName: String, role: MailFolderRole) {
+        self.path = path
+        self.displayName = displayName
+        self.role = role
+    }
+}
+
 public actor SwiftMailClient {
     public struct Credentials: Sendable {
         public let host: String
@@ -64,6 +86,86 @@ public actor SwiftMailClient {
 
     public init(credentials: Credentials) {
         self.credentials = credentials
+    }
+
+    public func listFolders() async throws -> [SwiftMailFolderInfo] {
+        #if canImport(SwiftMail)
+        let server = IMAPServer(host: credentials.host, port: credentials.port)
+        do {
+            try await server.connect()
+            try await server.login(username: credentials.username, password: credentials.password)
+        } catch {
+            throw SwiftMailError.underlying(error)
+        }
+        do {
+            let special = try await server.listSpecialUseMailboxes()
+            try? await server.disconnect()
+
+            var byPath: [String: SwiftMailFolderInfo] = [:]
+            func add(_ mb: SwiftMail.Mailbox?, role: MailFolderRole) {
+                guard let mb = mb else { return }
+                let path = mb.name
+                let display = path.split(separator: "/").last.map(String.init) ?? path
+                byPath[path] = SwiftMailFolderInfo(path: path, displayName: display, role: role)
+            }
+            add(special.inbox, role: .inbox)
+            add(special.drafts, role: .drafts)
+            add(special.sent, role: .sent)
+            add(special.trash, role: .trash)
+            add(special.junk, role: .junk)
+            add(special.archive, role: .archive)
+            for other in special.other ?? [] {
+                let path = other.name
+                let display = path.split(separator: "/").last.map(String.init) ?? path
+                if byPath[path] == nil {
+                    byPath[path] = SwiftMailFolderInfo(path: path, displayName: display, role: .other)
+                }
+            }
+            // Always guarantee INBOX even if SPECIAL-USE didn't tag it.
+            if byPath["INBOX"] == nil {
+                byPath["INBOX"] = SwiftMailFolderInfo(path: "INBOX", displayName: "INBOX", role: .inbox)
+            }
+            return Array(byPath.values).sorted { rolePriority($0.role) < rolePriority($1.role) || ($0.role == $1.role && $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending) }
+        } catch {
+            try? await server.disconnect()
+            throw SwiftMailError.underlying(error)
+        }
+        #else
+        throw SwiftMailError.unavailable
+        #endif
+    }
+
+    public func createFolder(path: String) async throws {
+        #if canImport(SwiftMail)
+        let server = IMAPServer(host: credentials.host, port: credentials.port)
+        do {
+            try await server.connect()
+            try await server.login(username: credentials.username, password: credentials.password)
+        } catch {
+            throw SwiftMailError.underlying(error)
+        }
+        do {
+            try await server.createMailbox(name: path)
+            try? await server.disconnect()
+        } catch {
+            try? await server.disconnect()
+            throw SwiftMailError.underlying(error)
+        }
+        #else
+        throw SwiftMailError.unavailable
+        #endif
+    }
+
+    private static func rolePriority(_ role: MailFolderRole) -> Int {
+        switch role {
+        case .inbox: 0
+        case .sent: 1
+        case .drafts: 2
+        case .archive: 3
+        case .trash: 4
+        case .junk: 5
+        case .other: 6
+        }
     }
 
     // Metadata-only bulk fetch via SwiftMail's fetchMessageInfos(sequenceRange:).

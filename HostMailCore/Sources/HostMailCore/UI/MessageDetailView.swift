@@ -69,7 +69,12 @@ public struct MessageDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else if let html = htmlBody, !html.isEmpty {
+            // The email's own HTML usually defines a white background and its
+            // own type. Frame the WebView like a "letter" sitting on the dark
+            // app surface — padding around, rounded corners, slight elevation.
             HTMLBodyView(html: html)
+                .clipShape(RoundedRectangle(cornerRadius: HostTheme.cornerRadius, style: .continuous))
+                .padding(16)
         } else if !plainBody.isEmpty {
             PlainBodyView(plain: plainBody)
         } else {
