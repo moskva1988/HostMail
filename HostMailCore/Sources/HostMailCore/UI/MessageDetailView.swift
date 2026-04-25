@@ -100,7 +100,7 @@ public struct MessageDetailView: View {
             error = "Missing account info — re-sync the inbox first."
             return
         }
-        guard let password = try? KeychainStore().loadPassword(for: email), let password else {
+        guard let password = try? KeychainStore().loadPassword(for: email) else {
             error = "Password not in Keychain. Open the sync sheet, enter password, enable Save."
             return
         }

@@ -203,7 +203,7 @@ private struct InboxView: View {
         guard let account = accounts.first,
               let email = account.emailAddress,
               let host = account.imapHost else { return }
-        guard let password = try? KeychainStore().loadPassword(for: email), let password else { return }
+        guard let password = try? KeychainStore().loadPassword(for: email) else { return }
 
         let creds = SwiftMailClient.Credentials(
             host: host,
@@ -344,7 +344,7 @@ private struct SyncSheet: View {
                 host = a.imapHost ?? "imap.gmail.com"
                 port = String(a.imapPort > 0 ? a.imapPort : 993)
                 displayName = a.displayName ?? ""
-                if let saved = try? KeychainStore().loadPassword(for: email), let saved {
+                if let saved = try? KeychainStore().loadPassword(for: email) {
                     password = saved
                 }
             }
