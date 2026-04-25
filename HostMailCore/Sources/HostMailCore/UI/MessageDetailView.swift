@@ -5,7 +5,8 @@ public struct MessageDetailView: View {
     @Environment(\.managedObjectContext) private var context
     @ObservedObject var message: Message
 
-    @State private var body_: String = ""
+    @State private var htmlBody: String?
+    @State private var plainBody: String = ""
     @State private var loading = false
     @State private var error: String?
 
@@ -14,32 +15,17 @@ public struct MessageDetailView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 0) {
+            ScrollView {
                 header
-                Divider()
-                if loading {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Loading message body…")
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.top, 8)
-                } else if let error = error {
-                    Text(error)
-                        .font(.callout)
-                        .foregroundStyle(HostTheme.errorRed)
-                } else if !body_.isEmpty {
-                    Text(body_)
-                        .font(.body)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("(no body — tap Refresh)")
-                        .foregroundStyle(.secondary)
-                }
+                    .padding(20)
             }
-            .padding(20)
+            .frame(maxHeight: 140)
+
+            Divider()
+
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(message.subject ?? "(no subject)")
         #if os(iOS)
@@ -62,6 +48,47 @@ public struct MessageDetailView: View {
         .task { await loadBody(force: false) }
     }
 
+    @ViewBuilder
+    private var content: some View {
+        if loading {
+            VStack(spacing: 8) {
+                Spacer()
+                ProgressView()
+                Text("Loading message body…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+        } else if let error = error {
+            ScrollView {
+                Text(error)
+                    .font(.callout)
+                    .foregroundStyle(HostTheme.errorRed)
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else if let html = htmlBody, !html.isEmpty {
+            HTMLBodyView(html: html)
+        } else if !plainBody.isEmpty {
+            ScrollView {
+                Text(plainBody)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            VStack {
+                Spacer()
+                Text("(no body — tap Refresh)")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(message.subject ?? "(no subject)")
@@ -82,16 +109,20 @@ public struct MessageDetailView: View {
                 .font(.caption)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func loadBody(force: Bool) async {
-        if !force, let cached = message.bodyPlain, !cached.isEmpty {
-            body_ = cached
-            return
-        }
-        if !force, let html = message.bodyHTML, !html.isEmpty, body_.isEmpty {
-            body_ = stripHTML(html)
-            return
+        if !force {
+            if let cachedHTML = message.bodyHTML, !cachedHTML.isEmpty {
+                htmlBody = cachedHTML
+                if let cachedPlain = message.bodyPlain { plainBody = cachedPlain }
+                return
+            }
+            if let cachedPlain = message.bodyPlain, !cachedPlain.isEmpty {
+                plainBody = cachedPlain
+                return
+            }
         }
 
         guard let account = message.folder?.account,
@@ -125,18 +156,18 @@ public struct MessageDetailView: View {
             let result = try await client.fetchBody(uid: uid, folder: folder)
 
             await MainActor.run {
-                if let plain = result.plain, !plain.isEmpty {
-                    body_ = plain
-                } else if let html = result.html, !html.isEmpty {
-                    body_ = stripHTML(html)
+                if let html = result.html, !html.isEmpty {
+                    htmlBody = html
+                    plainBody = result.plain ?? ""
+                } else if let plain = result.plain, !plain.isEmpty {
+                    htmlBody = nil
+                    plainBody = plain
                 } else if let raw = result.raw, !raw.isEmpty {
-                    // Parser couldn't extract a readable part — surface raw RFC822
-                    // (truncated) so the user gets *something* and we can debug
-                    // by eye what the server actually returned.
-                    let snippet = String(raw.prefix(3000))
-                    body_ = "(MIME parse failed — showing raw RFC822 below)\n\n" + snippet
+                    htmlBody = nil
+                    plainBody = "(MIME parse failed — showing raw RFC822)\n\n" + String(raw.prefix(3000))
                 } else {
-                    body_ = "(empty body)"
+                    htmlBody = nil
+                    plainBody = ""
                 }
             }
 
@@ -159,22 +190,5 @@ public struct MessageDetailView: View {
                 self.error = "Fetch failed: \(error.localizedDescription)"
             }
         }
-    }
-
-    // Strips HTML tags into a plain-text approximation. Not bulletproof but
-    // good enough for read-only preview while we don't have a WebKit-based
-    // HTML view yet.
-    private func stripHTML(_ html: String) -> String {
-        var s = html
-        s = s.replacingOccurrences(of: "<br[^>]*>", with: "\n", options: .regularExpression)
-        s = s.replacingOccurrences(of: "</p>", with: "\n\n", options: .regularExpression)
-        s = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-        s = s.replacingOccurrences(of: "&nbsp;", with: " ")
-        s = s.replacingOccurrences(of: "&amp;", with: "&")
-        s = s.replacingOccurrences(of: "&lt;", with: "<")
-        s = s.replacingOccurrences(of: "&gt;", with: ">")
-        s = s.replacingOccurrences(of: "&quot;", with: "\"")
-        s = s.replacingOccurrences(of: "&#39;", with: "'")
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
