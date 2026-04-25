@@ -71,13 +71,7 @@ public struct MessageDetailView: View {
         } else if let html = htmlBody, !html.isEmpty {
             HTMLBodyView(html: html)
         } else if !plainBody.isEmpty {
-            ScrollView {
-                Text(plainBody)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .padding(20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            PlainBodyView(plain: plainBody)
         } else {
             VStack {
                 Spacer()
