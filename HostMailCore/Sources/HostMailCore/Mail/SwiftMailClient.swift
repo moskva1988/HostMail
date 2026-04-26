@@ -114,12 +114,14 @@ public actor SwiftMailClient {
             add(special.trash, role: .trash)
             add(special.junk, role: .junk)
             add(special.archive, role: .archive)
-            for other in special.other {
-                let path = other.name
+            // listSpecialUseMailboxes returns [Mailbox.Info]; .inbox / .drafts /
+            // .sent / etc. are computed properties on Array<Mailbox.Info> that
+            // pick out the special-use one. Everything left in the array =
+            // user folder.
+            for mb in special where byPath[mb.name] == nil {
+                let path = mb.name
                 let display = path.split(separator: "/").last.map(String.init) ?? path
-                if byPath[path] == nil {
-                    byPath[path] = SwiftMailFolderInfo(path: path, displayName: display, role: .other)
-                }
+                byPath[path] = SwiftMailFolderInfo(path: path, displayName: display, role: .other)
             }
             if byPath["INBOX"] == nil {
                 byPath["INBOX"] = SwiftMailFolderInfo(path: "INBOX", displayName: "INBOX", role: .inbox)
