@@ -143,8 +143,27 @@ private func wrappedHTML(_ html: String) -> String {
     }
     pre, code { font-family: ui-monospace, monospace; font-size: 0.9em; }
     @media (prefers-color-scheme: dark) {
-      body { color: #e8e8ea; }
-      table, td, th { border-color: #3a3a3c; }
+      html, body {
+        background-color: #1a1a1c !important;
+        background: #1a1a1c !important;
+        color: #e8e8ea !important;
+      }
+      /* Override common email patterns that hard-code white on inner blocks */
+      table, tr, td, th, div[bgcolor], td[bgcolor], tr[bgcolor],
+      [style*="background-color:#fff"], [style*="background-color: #fff"],
+      [style*="background-color:#FFF"], [style*="background-color: #FFF"],
+      [style*="background-color:white"], [style*="background-color: white"],
+      [style*="background:#fff"], [style*="background: #fff"],
+      [style*="background:white"], [style*="background: white"] {
+        background-color: #1a1a1c !important;
+        background: #1a1a1c !important;
+      }
+      table, td, th { border-color: #3a3a3c !important; }
+      /* Most email text colors target white BG (dark text). Lighten unless
+         author explicitly used light-on-dark already. */
+      body, body p, body span, body td, body div, body li {
+        color: #e8e8ea !important;
+      }
     }
     </style>
     </head>

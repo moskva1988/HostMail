@@ -46,7 +46,7 @@ private struct ShellView: View {
     @State private var selectedMessage: NSManagedObjectID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showSyncSheet = false
-    @State private var showNewFolderSheet = false
+    @State private var showNewFolderSheet = false  // kept for future folder workflow
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -279,7 +279,7 @@ private struct SyncSheet: View {
                 } else {
                     try? KeychainStore().deletePassword(for: userEmail)
                 }
-                output = "INBOX: +\(res.newMessages) new, ~\(res.updatedMessages) updated"
+                output = "INBOX: +\(res.newMessages) new, ~\(res.updatedMessages) updated, -\(res.deletedMessages) deleted"
                 dismiss()
             } catch {
                 output = "Error: \(error.localizedDescription)"

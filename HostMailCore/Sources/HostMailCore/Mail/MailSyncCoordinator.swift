@@ -12,6 +12,7 @@ public final class MailSyncCoordinator: @unchecked Sendable {
         public let folderPath: String
         public let newMessages: Int
         public let updatedMessages: Int
+        public let deletedMessages: Int
         public let totalInFolder: Int
     }
 
@@ -42,7 +43,7 @@ public final class MailSyncCoordinator: @unchecked Sendable {
                         account: account,
                         in: context
                     )
-                    let (new, updated) = try self.upsertMessages(snapshots, folder: folderObj, in: context)
+                    let (new, updated, deleted) = try self.upsertMessages(snapshots, folder: folderObj, in: context)
                     folderObj.totalCount = Int32(snapshots.count)
                     account.lastSyncAt = Date()
                     try context.save()
@@ -51,6 +52,7 @@ public final class MailSyncCoordinator: @unchecked Sendable {
                         folderPath: folder,
                         newMessages: new,
                         updatedMessages: updated,
+                        deletedMessages: deleted,
                         totalInFolder: snapshots.count
                     ))
                 } catch {
@@ -170,22 +172,36 @@ public final class MailSyncCoordinator: @unchecked Sendable {
         _ snapshots: [SwiftMailSnapshot],
         folder: Folder,
         in context: NSManagedObjectContext
-    ) throws -> (new: Int, updated: Int) {
-        guard !snapshots.isEmpty else { return (0, 0) }
+    ) throws -> (new: Int, updated: Int, deleted: Int) {
+        guard !snapshots.isEmpty else { return (0, 0, 0) }
 
-        let uids = snapshots.map { Int64($0.uid) }
-        let request: NSFetchRequest<Message> = Message.fetchRequest()
-        request.predicate = NSPredicate(format: "folder == %@ AND uid IN %@", folder, uids)
-        let existing = try context.fetch(request)
-        let byUID = Dictionary(uniqueKeysWithValues: existing.map { (Int64($0.uid), $0) })
+        let serverUIDs = Set(snapshots.map { Int64($0.uid) })
+        let minServerUID = serverUIDs.min() ?? 0
+
+        // Pull all local messages in this folder so we can both upsert and
+        // detect deletions (lazy delete sync).
+        let allRequest: NSFetchRequest<Message> = Message.fetchRequest()
+        allRequest.predicate = NSPredicate(format: "folder == %@", folder)
+        let allLocal = try context.fetch(allRequest)
+        let byUID = Dictionary(uniqueKeysWithValues: allLocal.map { (Int64($0.uid), $0) })
 
         var newCount = 0
         var updatedCount = 0
+        var deletedCount = 0
+
+        // Lazy delete: any local message whose UID falls within the server's
+        // recent window (>= minServerUID) but isn't in the server response was
+        // expunged on the server — delete it locally so caches stay in sync.
+        // We deliberately DON'T touch local messages with UID < minServerUID
+        // (older messages that are simply outside this sync's window).
+        for msg in allLocal where msg.uid >= minServerUID && !serverUIDs.contains(msg.uid) {
+            context.delete(msg)
+            deletedCount += 1
+        }
 
         for s in snapshots {
             let uid = Int64(s.uid)
-            if let msg = byUID[uid] {
-                // Update fields that may have changed
+            if let msg = byUID[uid], !msg.isDeleted {
                 msg.subject = s.subject
                 msg.from = s.from
                 msg.date = s.date
@@ -205,6 +221,6 @@ public final class MailSyncCoordinator: @unchecked Sendable {
             }
         }
 
-        return (newCount, updatedCount)
+        return (newCount, updatedCount, deletedCount)
     }
 }

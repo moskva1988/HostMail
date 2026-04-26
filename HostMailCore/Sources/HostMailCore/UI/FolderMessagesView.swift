@@ -152,7 +152,7 @@ public struct FolderMessagesView: View {
                 folder: path,
                 limit: 50
             )
-            lastSyncSummary = "+\(res.newMessages) new, ~\(res.updatedMessages) updated"
+            lastSyncSummary = "+\(res.newMessages) new, ~\(res.updatedMessages) updated, -\(res.deletedMessages) deleted"
             syncError = nil
         } catch {
             syncError = "Sync failed: \(error.localizedDescription)"

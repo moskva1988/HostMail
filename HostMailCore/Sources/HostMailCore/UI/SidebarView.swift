@@ -48,14 +48,7 @@ public struct SidebarView: View {
             Section("App") {
                 Label("Settings", systemImage: "gearshape")
                     .tag(SidebarItem.settings)
-                if !accounts.isEmpty {
-                    Button {
-                        showNewFolderSheet = true
-                    } label: {
-                        Label("New Folder…", systemImage: "folder.badge.plus")
-                    }
-                    .buttonStyle(.plain)
-                } else {
+                if accounts.isEmpty {
                     Label("Add Account…", systemImage: "person.crop.circle.badge.plus")
                         .tag(SidebarItem.addAccount)
                 }

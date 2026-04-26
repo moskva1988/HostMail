@@ -176,10 +176,17 @@ public struct MessageDetailView: View {
             bg.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 bg.perform {
-                    if let bgMsg = try? bg.existingObject(with: messageID) as? Message {
+                    do {
+                        guard let bgMsg = try bg.existingObject(with: messageID) as? Message else {
+                            print("[MessageDetail] body save: object not found for \(messageID)")
+                            cont.resume()
+                            return
+                        }
                         bgMsg.bodyPlain = result.plain
                         bgMsg.bodyHTML = result.html
-                        try? bg.save()
+                        try bg.save()
+                    } catch {
+                        print("[MessageDetail] body save failed: \(error)")
                     }
                     cont.resume()
                 }
