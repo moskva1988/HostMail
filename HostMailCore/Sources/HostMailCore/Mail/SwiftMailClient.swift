@@ -102,7 +102,7 @@ public actor SwiftMailClient {
             try? await server.disconnect()
 
             var byPath: [String: SwiftMailFolderInfo] = [:]
-            func add(_ mb: SwiftMail.Mailbox?, role: MailFolderRole) {
+            func add(_ mb: SwiftMail.Mailbox.Info?, role: MailFolderRole) {
                 guard let mb = mb else { return }
                 let path = mb.name
                 let display = path.split(separator: "/").last.map(String.init) ?? path
@@ -114,18 +114,22 @@ public actor SwiftMailClient {
             add(special.trash, role: .trash)
             add(special.junk, role: .junk)
             add(special.archive, role: .archive)
-            for other in special.other ?? [] {
+            for other in special.other {
                 let path = other.name
                 let display = path.split(separator: "/").last.map(String.init) ?? path
                 if byPath[path] == nil {
                     byPath[path] = SwiftMailFolderInfo(path: path, displayName: display, role: .other)
                 }
             }
-            // Always guarantee INBOX even if SPECIAL-USE didn't tag it.
             if byPath["INBOX"] == nil {
                 byPath["INBOX"] = SwiftMailFolderInfo(path: "INBOX", displayName: "INBOX", role: .inbox)
             }
-            return Array(byPath.values).sorted { rolePriority($0.role) < rolePriority($1.role) || ($0.role == $1.role && $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending) }
+            return Array(byPath.values).sorted { a, b in
+                let pa = Self.rolePriority(a.role)
+                let pb = Self.rolePriority(b.role)
+                if pa != pb { return pa < pb }
+                return a.displayName.localizedStandardCompare(b.displayName) == .orderedAscending
+            }
         } catch {
             try? await server.disconnect()
             throw SwiftMailError.underlying(error)
@@ -145,7 +149,7 @@ public actor SwiftMailClient {
             throw SwiftMailError.underlying(error)
         }
         do {
-            try await server.createMailbox(name: path)
+            try await server.createMailbox(path)
             try? await server.disconnect()
         } catch {
             try? await server.disconnect()
