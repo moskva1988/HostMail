@@ -118,10 +118,12 @@ public actor SwiftMailClient {
             var byPath: [String: SwiftMailFolderInfo] = [:]
             for box in allBoxes {
                 guard box.isSelectable else { continue }   // skip Gmail [Gmail] root etc.
-                let path = box.name
-                let display = path.split(separator: "/").last.map(String.init) ?? path
+                let path = box.name                          // raw mUTF-7 — must keep for SELECT
+                let decoded = Self.decodeModifiedUTF7(path)  // human-readable name
+                let display = decoded.split(separator: "/").last.map(String.init) ?? decoded
                 let role = roleFor(
-                    name: path,
+                    rawName: path,
+                    decodedName: decoded,
                     inbox: inboxName, sent: sentName, drafts: draftsName,
                     trash: trashName, junk: junkName, archive: archiveName
                 )
@@ -146,21 +148,24 @@ public actor SwiftMailClient {
     }
 
     private func roleFor(
-        name: String,
+        rawName: String,
+        decodedName: String,
         inbox: String?, sent: String?, drafts: String?,
         trash: String?, junk: String?, archive: String?
     ) -> MailFolderRole {
-        if name == inbox   { return .inbox }
-        if name == sent    { return .sent }
-        if name == drafts  { return .drafts }
-        if name == trash   { return .trash }
-        if name == junk    { return .junk }
-        if name == archive { return .archive }
+        // English-aware match (uses raw IMAP names — SwiftMail's accessors
+        // already returned them in raw form).
+        if rawName == inbox   { return .inbox }
+        if rawName == sent    { return .sent }
+        if rawName == drafts  { return .drafts }
+        if rawName == trash   { return .trash }
+        if rawName == junk    { return .junk }
+        if rawName == archive { return .archive }
 
-        // Russian fallback — mail.ru / Yandex / etc. don't tag user folders
-        // with SPECIAL-USE attributes, so SwiftMail's English-only name
-        // fallback misses them.
-        switch name.lowercased() {
+        // Russian fallback against the decoded (mUTF-7 → UTF-8) name —
+        // mail.ru / Yandex / etc. ship localized folder names that the
+        // English heuristic misses.
+        switch decodedName.lowercased() {
         case "отправленные", "отправленная почта", "отправленые":
             return .sent
         case "черновики":
@@ -174,6 +179,44 @@ public actor SwiftMailClient {
         default:
             return .other
         }
+    }
+
+    /// Decodes IMAP modified UTF-7 (RFC 3501 §5.1.3) → Swift String.
+    /// Used to surface human-readable folder names while keeping the raw
+    /// mUTF-7 around for IMAP SELECT/STATUS calls.
+    static func decodeModifiedUTF7(_ s: String) -> String {
+        var result = ""
+        var i = s.startIndex
+        while i < s.endIndex {
+            let c = s[i]
+            if c != "&" {
+                result.append(c)
+                i = s.index(after: i)
+                continue
+            }
+            let afterAmp = s.index(after: i)
+            if afterAmp < s.endIndex, s[afterAmp] == "-" {
+                // "&-" → literal "&"
+                result.append("&")
+                i = s.index(after: afterAmp)
+                continue
+            }
+            guard let endIdx = s[afterAmp...].firstIndex(of: "-") else {
+                result.append(contentsOf: s[i...])
+                break
+            }
+            let encoded = String(s[afterAmp..<endIdx])
+            // mUTF-7 uses ',' instead of '/' in its base64 alphabet
+            let standard = encoded.replacingOccurrences(of: ",", with: "/")
+            let pad = (4 - standard.count % 4) % 4
+            let padded = standard + String(repeating: "=", count: pad)
+            if let data = Data(base64Encoded: padded),
+               let decoded = String(data: data, encoding: .utf16BigEndian) {
+                result.append(decoded)
+            }
+            i = s.index(after: endIdx)
+        }
+        return result
     }
 
     public func createFolder(path: String) async throws {
