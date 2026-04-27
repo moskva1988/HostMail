@@ -47,6 +47,14 @@ private struct ShellView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showSyncSheet = false
     @State private var showNewFolderSheet = false  // kept for future folder workflow
+    @State private var previewVisible: Bool = true   // toggle for the detail column on macOS / iPad
+
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var isCompact: Bool { horizontalSizeClass == .compact }
+    #else
+    private var isCompact: Bool { false }
+    #endif
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -65,6 +73,20 @@ private struct ShellView: View {
         } content: {
             contentColumn
                 .navigationSplitViewColumnWidth(min: 320, ideal: 380)
+                .toolbar {
+                    if !isCompact {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                previewVisible.toggle()
+                            } label: {
+                                Image(systemName: previewVisible
+                                      ? "sidebar.right"
+                                      : "sidebar.squares.right")
+                            }
+                            .help(previewVisible ? "Hide preview" : "Show preview")
+                        }
+                    }
+                }
         } detail: {
             detailColumn
         }
@@ -74,7 +96,12 @@ private struct ShellView: View {
         .sheet(isPresented: $showNewFolderSheet) {
             NewFolderSheet(account: accounts.first)
         }
-        .onAppear { applyDefaultSelection() }
+        .onAppear {
+            applyDefaultSelection()
+            #if os(iOS)
+            if isCompact { previewVisible = false }
+            #endif
+        }
         .onChange(of: folders.count) { _, _ in
             applyDefaultSelection()
         }
@@ -118,9 +145,27 @@ private struct ShellView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if let id = selectedMessage,
-           let msg = try? context.existingObject(with: id) as? Message {
+        if !previewVisible {
+            VStack(spacing: 8) {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 36, weight: .light))
+                    .foregroundStyle(.tertiary)
+                Text("Preview hidden")
+                    .foregroundStyle(.secondary)
+                Text("Toggle the preview button to show messages here, or double-click a row to open in a separate window.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let id = selectedMessage,
+                  let msg = try? context.existingObject(with: id) as? Message {
+            // .id() forces SwiftUI to discard MessageDetailView's @State on
+            // selection change, so the new message's body re-loads from cache
+            // (or re-fetches) instead of stale local state lingering.
             MessageDetailView(message: msg)
+                .id(id)
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "envelope.open.fill")

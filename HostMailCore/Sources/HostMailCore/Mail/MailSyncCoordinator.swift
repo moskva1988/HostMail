@@ -204,6 +204,7 @@ public final class MailSyncCoordinator: @unchecked Sendable {
             if let msg = byUID[uid], !msg.isDeleted {
                 msg.subject = s.subject
                 msg.from = s.from
+                msg.to = s.to
                 msg.date = s.date
                 msg.preview = s.preview
                 updatedCount += 1
@@ -213,6 +214,7 @@ public final class MailSyncCoordinator: @unchecked Sendable {
                 msg.uid = uid
                 msg.subject = s.subject
                 msg.from = s.from
+                msg.to = s.to
                 msg.date = s.date
                 msg.preview = s.preview
                 msg.fetchedAt = Date()

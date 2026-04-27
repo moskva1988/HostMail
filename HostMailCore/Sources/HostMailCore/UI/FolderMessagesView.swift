@@ -3,6 +3,7 @@ import SwiftUI
 
 public struct FolderMessagesView: View {
     @Environment(\.managedObjectContext) private var context
+    @Environment(\.openWindow) private var openWindow
     @ObservedObject var folder: Folder
     @Binding var selectedMessage: NSManagedObjectID?
 
@@ -91,6 +92,13 @@ public struct FolderMessagesView: View {
                 ForEach(messages, id: \.objectID) { msg in
                     MessageRow(message: msg)
                         .tag(msg.objectID as NSManagedObjectID?)
+                        #if os(macOS)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) {
+                            openWindow(id: "message",
+                                       value: msg.objectID.uriRepresentation())
+                        }
+                        #endif
                 }
             }
             #if os(iOS)
@@ -163,10 +171,27 @@ public struct FolderMessagesView: View {
 struct MessageRow: View {
     @ObservedObject var message: Message
 
+    /// In Sent / Drafts folders the meaningful party is the recipient,
+    /// not the sender (which is always you). Detect via the parent
+    /// folder's role.
+    private var showsRecipient: Bool {
+        switch message.folder?.role {
+        case "sent", "drafts": true
+        default: false
+        }
+    }
+
+    private var partyLabel: String {
+        if showsRecipient {
+            return "To: " + (message.to ?? "(unknown recipient)")
+        }
+        return message.from ?? "(unknown sender)"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(message.from ?? "(unknown sender)")
+                Text(partyLabel)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                 Spacer()

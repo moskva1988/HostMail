@@ -20,13 +20,15 @@ public enum SwiftMailError: LocalizedError {
 public struct SwiftMailSnapshot: Sendable, Hashable {
     public let uid: UInt32
     public let from: String?
+    public let to: String?
     public let subject: String?
     public let date: Date?
     public let preview: String?
 
-    public init(uid: UInt32, from: String?, subject: String?, date: Date?, preview: String?) {
+    public init(uid: UInt32, from: String?, to: String?, subject: String?, date: Date?, preview: String?) {
         self.uid = uid
         self.from = from
+        self.to = to
         self.subject = subject
         self.date = date
         self.preview = preview
@@ -283,9 +285,11 @@ public actor SwiftMailClient {
 
             let snapshots = infos.map { info -> SwiftMailSnapshot in
                 let uidValue = info.uid?.value ?? info.sequenceNumber.value
+                let toJoined = info.to.isEmpty ? nil : info.to.joined(separator: ", ")
                 return SwiftMailSnapshot(
                     uid: uidValue,
                     from: info.from,
+                    to: toJoined,
                     subject: info.subject,
                     date: info.date ?? info.internalDate,
                     preview: nil
