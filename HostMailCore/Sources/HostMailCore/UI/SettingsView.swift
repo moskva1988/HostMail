@@ -29,7 +29,7 @@ public struct SettingsView: View {
             }
 
             Section("AI Provider") {
-                Label(aiStatus, systemImage: "brain.head.profile")
+                Label(aiStatus, systemImage: "brain.head.profile.fill")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -92,7 +92,7 @@ public struct SettingsView: View {
                 Button(role: .destructive) {
                     showSignOutConfirm = account
                 } label: {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right.fill")
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.borderless)

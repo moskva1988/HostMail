@@ -58,7 +58,7 @@ private struct ShellView: View {
                         Button {
                             showSyncSheet = true
                         } label: {
-                            Image(systemName: accounts.isEmpty ? "plus.circle" : "arrow.clockwise")
+                            Image(systemName: accounts.isEmpty ? "plus.circle.fill" : "arrow.clockwise")
                         }
                     }
                 }
@@ -96,7 +96,7 @@ private struct ShellView: View {
             SettingsView()
         case .addAccount, .none:
             VStack(spacing: 12) {
-                Image(systemName: "envelope.badge")
+                Image(systemName: "envelope.badge.fill")
                     .font(.system(size: 48))
                     .foregroundStyle(HostTheme.accent)
                 Text("Welcome to HostMail")
@@ -123,7 +123,7 @@ private struct ShellView: View {
             MessageDetailView(message: msg)
         } else {
             VStack(spacing: 8) {
-                Image(systemName: "envelope.open")
+                Image(systemName: "envelope.open.fill")
                     .font(.system(size: 36, weight: .light))
                     .foregroundStyle(.tertiary)
                 Text("Select a message")

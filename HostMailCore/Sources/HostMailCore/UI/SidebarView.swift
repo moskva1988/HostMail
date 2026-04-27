@@ -46,10 +46,10 @@ public struct SidebarView: View {
             }
 
             Section("App") {
-                Label("Settings", systemImage: "gearshape")
+                Label("Settings", systemImage: "gearshape.fill")
                     .tag(SidebarItem.settings)
                 if accounts.isEmpty {
-                    Label("Add Account…", systemImage: "person.crop.circle.badge.plus")
+                    Label("Add Account…", systemImage: "person.crop.circle.fill.badge.plus")
                         .tag(SidebarItem.addAccount)
                 }
             }
@@ -113,13 +113,13 @@ public struct SidebarView: View {
 
     private func iconName(for role: String?) -> String {
         switch role {
-        case "inbox":   "tray"
-        case "sent":    "paperplane"
-        case "drafts":  "square.and.pencil"
-        case "trash":   "trash"
-        case "junk":    "exclamationmark.shield"
-        case "archive": "archivebox"
-        default:        "folder"
+        case "inbox":   "tray.fill"
+        case "sent":    "paperplane.fill"
+        case "drafts":  "square.and.pencil"     // already a filled glyph
+        case "trash":   "trash.fill"
+        case "junk":    "exclamationmark.shield.fill"
+        case "archive": "archivebox.fill"
+        default:        "folder.fill"
         }
     }
 }

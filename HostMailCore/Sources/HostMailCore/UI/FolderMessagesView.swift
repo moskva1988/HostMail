@@ -110,10 +110,10 @@ public struct FolderMessagesView: View {
             return Banner(text: "Syncing…", icon: "arrow.clockwise", tint: HostTheme.accent)
         }
         if let error = syncError {
-            return Banner(text: error, icon: "exclamationmark.triangle", tint: HostTheme.errorRed)
+            return Banner(text: error, icon: "exclamationmark.triangle.fill", tint: HostTheme.errorRed)
         }
         if !lastSyncSummary.isEmpty {
-            return Banner(text: lastSyncSummary, icon: "checkmark.circle", tint: HostTheme.successGreen)
+            return Banner(text: lastSyncSummary, icon: "checkmark.circle.fill", tint: HostTheme.successGreen)
         }
         return nil
     }
