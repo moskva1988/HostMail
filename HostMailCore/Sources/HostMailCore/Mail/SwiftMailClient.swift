@@ -98,30 +98,34 @@ public actor SwiftMailClient {
             throw SwiftMailError.underlying(error)
         }
         do {
-            let special = try await server.listSpecialUseMailboxes()
+            // Generic LIST "" "*" — every mailbox the account exposes,
+            // including custom user folders that listSpecialUseMailboxes
+            // misses on servers that don't tag folders with RFC 6154 flags
+            // (mail.ru only flags INBOX, hides everything else).
+            let allBoxes = try await server.listMailboxes()
             try? await server.disconnect()
 
+            // Capture the role-bearing names once via the array's built-in
+            // SPECIAL-USE accessors (they fall back to common English names
+            // like "Sent" / "Drafts").
+            let inboxName   = allBoxes.inbox?.name
+            let sentName    = allBoxes.sent?.name
+            let draftsName  = allBoxes.drafts?.name
+            let trashName   = allBoxes.trash?.name
+            let junkName    = allBoxes.junk?.name
+            let archiveName = allBoxes.archive?.name
+
             var byPath: [String: SwiftMailFolderInfo] = [:]
-            func add(_ mb: SwiftMail.Mailbox.Info?, role: MailFolderRole) {
-                guard let mb = mb else { return }
-                let path = mb.name
+            for box in allBoxes {
+                guard box.isSelectable else { continue }   // skip Gmail [Gmail] root etc.
+                let path = box.name
                 let display = path.split(separator: "/").last.map(String.init) ?? path
+                let role = roleFor(
+                    name: path,
+                    inbox: inboxName, sent: sentName, drafts: draftsName,
+                    trash: trashName, junk: junkName, archive: archiveName
+                )
                 byPath[path] = SwiftMailFolderInfo(path: path, displayName: display, role: role)
-            }
-            add(special.inbox, role: .inbox)
-            add(special.drafts, role: .drafts)
-            add(special.sent, role: .sent)
-            add(special.trash, role: .trash)
-            add(special.junk, role: .junk)
-            add(special.archive, role: .archive)
-            // listSpecialUseMailboxes returns [Mailbox.Info]; .inbox / .drafts /
-            // .sent / etc. are computed properties on Array<Mailbox.Info> that
-            // pick out the special-use one. Everything left in the array =
-            // user folder.
-            for mb in special where byPath[mb.name] == nil {
-                let path = mb.name
-                let display = path.split(separator: "/").last.map(String.init) ?? path
-                byPath[path] = SwiftMailFolderInfo(path: path, displayName: display, role: .other)
             }
             if byPath["INBOX"] == nil {
                 byPath["INBOX"] = SwiftMailFolderInfo(path: "INBOX", displayName: "INBOX", role: .inbox)
@@ -139,6 +143,37 @@ public actor SwiftMailClient {
         #else
         throw SwiftMailError.unavailable
         #endif
+    }
+
+    private func roleFor(
+        name: String,
+        inbox: String?, sent: String?, drafts: String?,
+        trash: String?, junk: String?, archive: String?
+    ) -> MailFolderRole {
+        if name == inbox   { return .inbox }
+        if name == sent    { return .sent }
+        if name == drafts  { return .drafts }
+        if name == trash   { return .trash }
+        if name == junk    { return .junk }
+        if name == archive { return .archive }
+
+        // Russian fallback — mail.ru / Yandex / etc. don't tag user folders
+        // with SPECIAL-USE attributes, so SwiftMail's English-only name
+        // fallback misses them.
+        switch name.lowercased() {
+        case "отправленные", "отправленная почта", "отправленые":
+            return .sent
+        case "черновики":
+            return .drafts
+        case "корзина", "удалённые", "удаленные":
+            return .trash
+        case "спам", "нежелательная почта":
+            return .junk
+        case "архив":
+            return .archive
+        default:
+            return .other
+        }
     }
 
     public func createFolder(path: String) async throws {
