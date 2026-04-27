@@ -1,11 +1,13 @@
 import SwiftUI
 
 public enum HostTheme {
-    // Brand palette aligned with HostCheck (Host* family).
-    // Primary purple — buttons, accents, sync indicators.
-    public static let accent      = Color(red: 0.42, green: 0.42, blue: 0.91) // ≈ #6B6BE8
-    public static let accentDeep  = Color(red: 0.32, green: 0.32, blue: 0.78) // hover/active
-    public static let accentSoft  = Color(red: 0.42, green: 0.42, blue: 0.91).opacity(0.18)
+    // Host* family palette — HostMail teal, distinct from HostCheck indigo
+    // (#6366f1) so the two apps read as siblings, not duplicates. Teal-600
+    // (Tailwind) sits in the calm/communication colour zone, contrasts well
+    // with white envelope artwork and dark surfaces.
+    public static let accent      = Color(red: 0.05, green: 0.58, blue: 0.53) // ≈ #0D9488
+    public static let accentDeep  = Color(red: 0.06, green: 0.46, blue: 0.43) // hover/active ≈ #0F766E
+    public static let accentSoft  = Color(red: 0.05, green: 0.58, blue: 0.53).opacity(0.18)
 
     // Surfaces
     public static let cardBg       = Color(.sRGB, red: 0.10, green: 0.10, blue: 0.13, opacity: 1.0)

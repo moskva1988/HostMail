@@ -164,17 +164,20 @@ public actor SwiftMailClient {
 
         // Russian fallback against the decoded (mUTF-7 → UTF-8) name —
         // mail.ru / Yandex / etc. ship localized folder names that the
-        // English heuristic misses.
+        // English heuristic misses. Names sourced from a real mail.ru
+        // account screenshot — kept exact lowercased forms.
         switch decodedName.lowercased() {
-        case "отправленные", "отправленная почта", "отправленые":
+        case "входящие":
+            return .inbox
+        case "отправлено", "отправленные", "отправленная почта", "отправленые":
             return .sent
         case "черновики":
             return .drafts
-        case "корзина", "удалённые", "удаленные":
+        case "удаленные элементы", "удалённые элементы", "корзина", "удалённые", "удаленные":
             return .trash
         case "спам", "нежелательная почта":
             return .junk
-        case "архив":
+        case "архивировать", "архив":
             return .archive
         default:
             return .other

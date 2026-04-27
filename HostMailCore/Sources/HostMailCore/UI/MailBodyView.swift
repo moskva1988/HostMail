@@ -132,11 +132,11 @@ private func wrappedHTML(_ html: String) -> String {
       word-wrap: break-word;
       line-height: 1.45;
     }
-    a { color: #6B6BE8; }
+    a { color: #0D9488; }
     img { max-width: 100%; height: auto; }
     table { max-width: 100%; border-collapse: collapse; }
     blockquote {
-      border-left: 3px solid #6B6BE8;
+      border-left: 3px solid #0D9488;
       margin: 0;
       padding-left: 12px;
       opacity: 0.8;
